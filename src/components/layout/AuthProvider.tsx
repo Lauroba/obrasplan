@@ -26,13 +26,14 @@ export default function AuthProvider({
 
         if (!session) {
           setUser(null);
+          setLoading(false);
           if (pathname !== "/login") {
             router.push("/login");
           }
           return;
         }
 
-        // Fetch user profile from our users table
+        // Fetch user profile
         const { data: profile } = await supabase
           .from("users")
           .select("*")
@@ -42,27 +43,30 @@ export default function AuthProvider({
         if (profile) {
           setUser(profile as User);
         } else {
-          // First login — create profile (admin by default for first user)
-          const { count } = await supabase
-            .from("users")
-            .select("*", { count: "exact", head: true });
+          // First login — create profile
+          try {
+            const { count } = await supabase
+              .from("users")
+              .select("*", { count: "exact", head: true });
 
-          const newUser: Partial<User> = {
-            id: session.user.id,
-            email: session.user.email || "",
-            nombre: session.user.email?.split("@")[0] || "Usuario",
-            role: count === 0 ? "admin" : "partes",
-            activo: true,
-          };
+            const { data: created } = await (supabase.from("users") as any)
+              .insert({
+                id: session.user.id,
+                email: session.user.email || "",
+                nombre: session.user.email?.split("@")[0] || "Usuario",
+                role: count === 0 ? "admin" : "partes",
+                activo: true,
+              })
+              .select()
+              .single();
 
-          const { data: created } = await supabase
-            .from("users")
-            .insert(newUser)
-            .select()
-            .single();
-
-          setUser((created as User) || null);
+            setUser((created as User) || null);
+          } catch {
+            setUser(null);
+          }
         }
+
+        setLoading(false);
 
         if (pathname === "/login") {
           router.push("/dashboard");
@@ -75,24 +79,22 @@ export default function AuthProvider({
 
     fetchUser();
 
-    // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
         setUser(null);
+        setLoading(false);
         router.push("/login");
       } else if (event === "SIGNED_IN") {
         fetchUser();
-        // Log the login
+        // Log login - fire and forget, never blocks
         if (session?.user?.id) {
-          try {
-            await supabase.rpc("log_user_login", {
-              p_user_id: session.user.id,
-              p_ip: null,
-              p_user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-            });
-          } catch (e) { /* ignore logging errors */ }
+          supabase.rpc("log_user_login", {
+            p_user_id: session.user.id,
+            p_ip: null,
+            p_user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+          }).catch(() => {});
         }
       }
     });
