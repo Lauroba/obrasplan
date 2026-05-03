@@ -19,6 +19,7 @@ type AssigView = "dia" | "semana";
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "maquinaria", "vehiculo"];
 const DAY_NAMES = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseDS = (ds: string) => { const [y, m, d] = ds.split("-").map(Number); return new Date(y, m - 1, d); };
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
@@ -269,7 +270,7 @@ export default function DashboardPage() {
                 <Calendar className="w-4 h-4 text-violet-500" />
                 {assigView === "dia"
                   ? assigDate.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
-                  : `Semana del ${new Date(assigDates[0] || assigDate.toISOString()).toLocaleDateString("es-ES", { day: "numeric", month: "long" })}`
+                  : `Semana del ${assigDates[0] ? parseDS(assigDates[0]).toLocaleDateString("es-ES", { day: "numeric", month: "long" }) : ""}`
                 }
               </h2>
               <div className="flex items-center gap-2">
@@ -286,7 +287,7 @@ export default function DashboardPage() {
                 </div>
                 {/* Date picker */}
                 <input type="date" value={toDS(assigDate)}
-                  onChange={(e) => { if (e.target.value) setAssigDate(new Date(e.target.value)); }}
+                  onChange={(e) => { if (e.target.value) setAssigDate(parseDS(e.target.value)); }}
                   className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
                 <span className="text-xs text-surface-400">{totalPersons} pers.</span>
               </div>
@@ -327,7 +328,7 @@ export default function DashboardPage() {
                   <div className="grid grid-cols-8 gap-1 mb-2">
                     <div className="text-[10px] font-semibold text-surface-400 uppercase px-2 py-1">Persona</div>
                     {assigDates.map((ds) => {
-                      const d = new Date(ds);
+                      const d = parseDS(ds);
                       const isToday = ds === toDS(new Date());
                       return (
                         <div key={ds} className={cn("text-[10px] font-semibold text-center px-1 py-1 rounded", isToday ? "bg-brand-50 text-brand-700" : "text-surface-400 uppercase")}>
