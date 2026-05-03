@@ -31,7 +31,6 @@ const maestros = [
 ];
 
 const admin = [
-  { name: "Usuarios", href: "/usuarios", icon: ShieldCheck },
   { name: "Logs", href: "/logs", icon: ScrollText },
   { name: "Configuración", href: "/configuracion", icon: Settings },
 ];

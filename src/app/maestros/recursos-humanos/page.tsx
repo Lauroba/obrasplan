@@ -29,6 +29,8 @@ export default function RecursosHumanosPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState("");
   const isAdmin = user?.role === "admin";
   const supabase = createClient();
 
@@ -101,6 +103,21 @@ export default function RecursosHumanosPage() {
     fetchData();
   };
 
+  const handleSync = async () => {
+    setSyncing(true); setSyncResult("");
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync" }),
+      });
+      const result = await res.json();
+      setSyncResult(result.message || "Sincronización completada");
+      fetchData();
+    } catch (err: any) { setSyncResult("Error: " + err.message); }
+    setSyncing(false);
+    setTimeout(() => setSyncResult(""), 8000);
+  };
+
   const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
 
   const columns: Column<RHWithUser>[] = [
@@ -143,7 +160,18 @@ export default function RecursosHumanosPage() {
             <h1 className="text-xl font-display font-bold text-surface-900">Recursos Humanos</h1>
             <p className="text-sm text-surface-500">Trabajadores y usuarios de la aplicación</p>
           </div>
+          {isAdmin && (
+            <button onClick={handleSync} disabled={syncing}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-violet-500 rounded-lg hover:bg-violet-600 disabled:opacity-60 ml-auto shrink-0">
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+              Sincronizar usuarios
+            </button>
+          )}
         </div>
+
+        {syncResult && (
+          <div className="mb-4 p-3 bg-violet-50 border border-violet-200 rounded-lg text-sm text-violet-700">{syncResult}</div>
+        )}
 
         <DataTable data={data} columns={columns} title="Trabajadores" loading={loading}
           searchPlaceholder="Buscar por nombre, perfil, email..." searchKeys={["nombre", "perfil", "email", "telefono"]}

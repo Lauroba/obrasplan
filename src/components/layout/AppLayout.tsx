@@ -4,8 +4,9 @@ import { useAuthStore } from "@/hooks/useAuth";
 import { useLayoutStore } from "@/hooks/useLayout";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
-import { Loader2, Menu } from "lucide-react";
+import { Loader2, Menu, LogOut } from "lucide-react";
 import Image from "next/image";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuthStore();
@@ -29,14 +30,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <Sidebar />
 
       {/* Mobile header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-surface-200 h-14 flex items-center px-4 gap-3">
-        <button onClick={() => setMobileMenu(true)} className="p-2 rounded-lg text-surface-600 hover:bg-surface-100">
-          <Menu className="w-5 h-5" />
-        </button>
-        <div className="w-7 h-7 relative shrink-0">
-          <Image src="/logo.png" alt="Loynek" fill className="object-contain" />
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-surface-200 h-14 flex items-center justify-between px-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setMobileMenu(true)} className="p-2 rounded-lg text-surface-600 hover:bg-surface-100">
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="w-7 h-7 relative shrink-0">
+            <Image src="/logo.png" alt="Loynek" fill className="object-contain" />
+          </div>
+          <span className="font-display font-bold text-surface-900 text-sm">ObrasPlan</span>
         </div>
-        <span className="font-display font-bold text-surface-900 text-sm">ObrasPlan</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-surface-500 hidden sm:block">{user?.nombre?.split(" ")[0]}</span>
+          <button onClick={async () => { const s = createClient(); await s.auth.signOut(); }}
+            className="p-2 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-red-500">
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Main content */}
