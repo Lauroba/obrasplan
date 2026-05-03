@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
 
     // ---- CREATE USER ----
     if (action === "create") {
-      const { nombre, perfil, telefono, email, password, role, foto_url } = body;
+      const { nombre, perfil, telefono, email, password, role, rol_id, foto_url } = body;
       if (!nombre || !email || !password) {
         return NextResponse.json({ error: "Nombre, email y contraseña son obligatorios" }, { status: 400 });
       }
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
       // 3. Create users profile
       const { error: profileError } = await (supabase.from("users") as any)
-        .insert({ id: authId, email, nombre, role: role || "partes", recurso_id: recurso.id, activo: true });
+        .insert({ id: authId, email, nombre, role: role || "partes", rol_id: rol_id || null, recurso_id: recurso.id, activo: true });
       if (profileError) {
         await (supabase.from("recursos_humanos") as any).delete().eq("id", recurso.id);
         await supabase.auth.admin.deleteUser(authId);
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     // ---- UPDATE USER ----
     if (action === "update") {
-      const { recurso_id, nombre, perfil, telefono, email, password, role, foto_url } = body;
+      const { recurso_id, nombre, perfil, telefono, email, password, role, rol_id, foto_url } = body;
       if (!recurso_id) return NextResponse.json({ error: "recurso_id obligatorio" }, { status: 400 });
 
       // Update recurso
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       // Find linked user
       const { data: userRow } = await supabase.from("users").select("id").eq("recurso_id", recurso_id).single();
       if (userRow) {
-        await (supabase.from("users") as any).update({ nombre, email, role: role || "partes" }).eq("id", userRow.id);
+        await (supabase.from("users") as any).update({ nombre, email, role: role || "partes", rol_id: rol_id || null }).eq("id", userRow.id);
         await supabase.auth.admin.updateUserById(userRow.id, { email });
         if (password && password.length >= 6) {
           await supabase.auth.admin.updateUserById(userRow.id, { password });

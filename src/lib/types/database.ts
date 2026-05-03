@@ -22,6 +22,7 @@ export interface User {
   email: string;
   nombre: string;
   role: UserRole;
+  rol_id: string | null;
   recurso_id: string | null;
   avatar_url: string | null;
   activo: boolean;

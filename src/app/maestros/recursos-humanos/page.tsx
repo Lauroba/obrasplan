@@ -17,7 +17,7 @@ interface RHWithUser extends RecursoHumano {
   user_id?: string;
 }
 
-const emptyForm = { nombre: "", perfil: "", telefono: "", email: "", password: "", role: "partes", foto_url: "" };
+const emptyForm = { nombre: "", perfil: "", telefono: "", email: "", password: "", role: "partes", rol_id: "", foto_url: "" };
 
 export default function RecursosHumanosPage() {
   const { user } = useAuthStore();
@@ -31,23 +31,31 @@ export default function RecursosHumanosPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState("");
+  const [dbRoles, setDbRoles] = useState<{ id: string; nombre: string; is_admin: boolean }[]>([]);
   const isAdmin = user?.role === "admin";
   const supabase = createClient();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    // Fetch recursos_humanos + linked user info
     const { data: recursos } = await supabase.from("recursos_humanos").select("*").order("nombre");
-    const { data: users } = await supabase.from("users").select("id, recurso_id, role, activo");
+    const { data: users } = await supabase.from("users").select("id, recurso_id, role, activo, rol_id");
+    const { data: rolesData } = await supabase.from("roles").select("id, nombre, is_admin").order("nombre");
 
-    const userMap: Record<string, { role: string; activo: boolean; id: string }> = {};
-    (users || []).forEach((u: any) => { if (u.recurso_id) userMap[u.recurso_id] = { role: u.role, activo: u.activo, id: u.id }; });
+    setDbRoles(rolesData || []);
 
-    const enriched = (recursos || []).map((r: RecursoHumano) => ({
+    const userMap: Record<string, { role: string; activo: boolean; id: string; rol_id: string | null }> = {};
+    (users || []).forEach((u: any) => { if (u.recurso_id) userMap[u.recurso_id] = { role: u.role, activo: u.activo, id: u.id, rol_id: u.rol_id }; });
+
+    const rolesMap: Record<string, string> = {};
+    (rolesData || []).forEach((r: any) => { rolesMap[r.id] = r.nombre; });
+
+    const enriched = (recursos || []).map((r: any) => ({
       ...r,
       user_role: userMap[r.id]?.role,
       user_activo: userMap[r.id]?.activo ?? r.activo,
       user_id: userMap[r.id]?.id,
+      user_rol_id: userMap[r.id]?.rol_id,
+      user_rol_nombre: userMap[r.id]?.rol_id ? rolesMap[userMap[r.id]?.rol_id!] || "Sin rol" : "Sin rol",
     }));
 
     setData(enriched);
@@ -74,6 +82,7 @@ export default function RecursosHumanosPage() {
           email: form.email,
           password: form.password,
           role: form.role,
+          rol_id: form.rol_id,
           foto_url: form.foto_url,
         }),
       });
@@ -136,8 +145,8 @@ export default function RecursosHumanosPage() {
     { key: "perfil", header: "Perfil" },
     { key: "email", header: "Email" },
     { key: "user_role", header: "Rol", render: (item) => (
-      <span className={cn("badge text-[10px]", item.user_role === "admin" ? "bg-brand-100 text-brand-700" : "bg-surface-100 text-surface-600")}>
-        {item.user_role === "admin" ? "Admin" : "Estándar"}
+      <span className={cn("badge text-[10px]", (item as any).user_rol_nombre === "Administrador" ? "bg-brand-100 text-brand-700" : "bg-surface-100 text-surface-600")}>
+        {(item as any).user_rol_nombre || "Sin rol"}
       </span>
     )},
     { key: "user_activo", header: "Acceso", render: (item) => (
@@ -176,7 +185,7 @@ export default function RecursosHumanosPage() {
         <DataTable data={data} columns={columns} title="Trabajadores" loading={loading}
           searchPlaceholder="Buscar por nombre, perfil, email..." searchKeys={["nombre", "perfil", "email", "telefono"]}
           onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setError(""); setModalOpen(true); } : undefined}
-          onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", foto_url: item.foto_url || "" }); setEditingId(item.id); setError(""); setModalOpen(true); } : undefined}
+          onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "" }); setEditingId(item.id); setError(""); setModalOpen(true); } : undefined}
           addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={false} />
 
         <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar trabajador" : "Nuevo trabajador"} size="lg">
@@ -234,9 +243,12 @@ export default function RecursosHumanosPage() {
                   </div>
                 </div>
                 <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Rol</label>
-                  <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={ic}>
-                    <option value="partes">Estándar</option>
-                    <option value="admin">Administrador</option>
+                  <select value={form.rol_id} onChange={(e) => {
+                    const rol = dbRoles.find((r) => r.id === e.target.value);
+                    setForm({ ...form, rol_id: e.target.value, role: rol?.is_admin ? "admin" : "partes" });
+                  }} className={ic}>
+                    <option value="">Sin rol</option>
+                    {dbRoles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                   </select>
                 </div>
               </div>

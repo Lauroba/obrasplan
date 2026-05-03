@@ -2,219 +2,278 @@
 
 import { useState, useEffect, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
+import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
-import { Settings, Loader2, Save, ShieldCheck, Check, X } from "lucide-react";
+import { Settings, Loader2, Save, ShieldCheck, Check, X, Plus, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
+type ConfigTab = "roles" | "general";
+
 const PANTALLAS = [
-  { id: "planificacion", label: "Planificación", permisos: ["ver", "asignar"] },
-  { id: "obras", label: "Obras", permisos: ["ver", "crear", "editar"] },
-  { id: "partes", label: "Partes", permisos: ["ver", "crear", "editar", "eliminar"] },
-  { id: "maestros", label: "Maestros", permisos: ["ver", "crear", "editar", "eliminar"] },
-  { id: "tareas", label: "Tareas", permisos: ["ver", "crear", "editar", "eliminar"] },
-  { id: "logs", label: "Logs", permisos: ["ver"] },
-  { id: "configuracion", label: "Configuración", permisos: ["ver"] },
+  { id: "dashboard", label: "Dashboard" },
+  { id: "planificacion", label: "Planificación" },
+  { id: "obras", label: "Obras" },
+  { id: "partes", label: "Partes" },
+  { id: "maestros_rrhh", label: "RRHH" },
+  { id: "maestros_maquinaria", label: "Maquinaria" },
+  { id: "maestros_vehiculos", label: "Vehículos" },
+  { id: "maestros_materiales", label: "Materiales" },
+  { id: "maestros_clientes", label: "Clientes" },
+  { id: "maestros_estados", label: "Estados obra" },
+  { id: "maestros_tipos_trabajo", label: "Tipos trabajo" },
+  { id: "logs", label: "Logs" },
+  { id: "configuracion", label: "Configuración" },
 ];
 
-const PERMISO_LABELS: Record<string, string> = { ver: "Ver", crear: "Crear", editar: "Editar", eliminar: "Eliminar", asignar: "Asignar" };
+const PERMISOS = ["visible", "crear", "editar", "eliminar", "asignar"] as const;
+const PERMISO_LABELS: Record<string, string> = { visible: "Ver", crear: "Crear", editar: "Editar", eliminar: "Eliminar", asignar: "Asignar" };
 
-interface UserPermData {
-  userId: string;
+interface RolData {
+  id: string;
   nombre: string;
-  email: string;
-  role: string;
+  descripcion: string;
+  is_admin: boolean;
   permisos: Record<string, Record<string, boolean>>;
 }
 
 export default function ConfiguracionPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const [users, setUsers] = useState<UserPermData[]>([]);
+  const [tab, setTab] = useState<ConfigTab>("roles");
+  const [roles, setRoles] = useState<RolData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedRol, setSelectedRol] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<string>("");
+  // Create/edit modal
+  const [rolModal, setRolModal] = useState(false);
+  const [rolForm, setRolForm] = useState({ nombre: "", descripcion: "", is_admin: false });
+  const [editingRolId, setEditingRolId] = useState<string | null>(null);
+  const [rolSaving, setRolSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [usersR, permR] = await Promise.all([
-      supabase.from("users").select("id, nombre, email, role").order("nombre"),
-      supabase.from("user_permisos").select("*"),
+    const [rolesR, permR] = await Promise.all([
+      supabase.from("roles").select("*").order("is_admin", { ascending: false }).order("nombre"),
+      supabase.from("rol_permisos").select("*"),
     ]);
-
-    const usersData = (usersR.data || []).filter((u: any) => u.role !== "admin");
+    const rolesData = (rolesR.data || []) as any[];
     const permsData = (permR.data || []) as any[];
 
-    const result: UserPermData[] = usersData.map((u: any) => {
+    const result: RolData[] = rolesData.map((r: any) => {
       const permisos: Record<string, Record<string, boolean>> = {};
       PANTALLAS.forEach((p) => {
-        const existing = permsData.find((perm: any) => perm.user_id === u.id && perm.pantalla === p.id);
+        const existing = permsData.find((perm: any) => perm.rol_id === r.id && perm.pantalla === p.id);
         permisos[p.id] = {
-          ver: existing?.ver ?? true,
-          crear: existing?.crear ?? true,
-          editar: existing?.editar ?? true,
-          eliminar: existing?.eliminar ?? true,
-          asignar: existing?.asignar ?? true,
+          visible: existing?.visible ?? r.is_admin,
+          crear: existing?.crear ?? r.is_admin,
+          editar: existing?.editar ?? r.is_admin,
+          eliminar: existing?.eliminar ?? r.is_admin,
+          asignar: existing?.asignar ?? r.is_admin,
         };
       });
-      return { userId: u.id, nombre: u.nombre, email: u.email, role: u.role, permisos };
+      return { id: r.id, nombre: r.nombre, descripcion: r.descripcion || "", is_admin: r.is_admin, permisos };
     });
 
-    setUsers(result);
-    if (result.length > 0 && !selectedUser) setSelectedUser(result[0].userId);
+    setRoles(result);
+    if (result.length > 0 && !selectedRol) setSelectedRol(result[0].id);
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const togglePerm = (userId: string, pantalla: string, permiso: string) => {
-    setUsers((prev) => prev.map((u) => {
-      if (u.userId !== userId) return u;
-      return {
-        ...u,
-        permisos: {
-          ...u.permisos,
-          [pantalla]: { ...u.permisos[pantalla], [permiso]: !u.permisos[pantalla][permiso] },
-        },
-      };
+  const togglePerm = (rolId: string, pantalla: string, permiso: string) => {
+    setRoles((prev) => prev.map((r) => {
+      if (r.id !== rolId || r.is_admin) return r;
+      return { ...r, permisos: { ...r.permisos, [pantalla]: { ...r.permisos[pantalla], [permiso]: !r.permisos[pantalla][permiso] } } };
     }));
     setSaved(false);
   };
 
-  const toggleAllForUser = (userId: string, value: boolean) => {
-    setUsers((prev) => prev.map((u) => {
-      if (u.userId !== userId) return u;
+  const toggleAll = (rolId: string, value: boolean) => {
+    setRoles((prev) => prev.map((r) => {
+      if (r.id !== rolId || r.is_admin) return r;
       const permisos: Record<string, Record<string, boolean>> = {};
-      PANTALLAS.forEach((p) => {
-        permisos[p.id] = {};
-        p.permisos.forEach((perm) => { permisos[p.id][perm] = value; });
-      });
-      return { ...u, permisos };
+      PANTALLAS.forEach((p) => { permisos[p.id] = {}; PERMISOS.forEach((perm) => { permisos[p.id][perm] = value; }); });
+      return { ...r, permisos };
     }));
     setSaved(false);
   };
 
-  const handleSave = async () => {
+  const handleSavePermisos = async () => {
     setSaving(true);
-    const currentUser = users.find((u) => u.userId === selectedUser);
-    if (!currentUser) { setSaving(false); return; }
+    const rol = roles.find((r) => r.id === selectedRol);
+    if (!rol || rol.is_admin) { setSaving(false); return; }
 
     for (const pantalla of PANTALLAS) {
-      const perms = currentUser.permisos[pantalla.id];
-      await (supabase.from("user_permisos") as any).upsert({
-        user_id: currentUser.userId,
-        pantalla: pantalla.id,
-        ver: perms.ver ?? false,
-        crear: perms.crear ?? false,
-        editar: perms.editar ?? false,
-        eliminar: perms.eliminar ?? false,
+      const perms = rol.permisos[pantalla.id];
+      await (supabase.from("rol_permisos") as any).upsert({
+        rol_id: rol.id, pantalla: pantalla.id,
+        visible: perms.visible ?? false, crear: perms.crear ?? false,
+        editar: perms.editar ?? false, eliminar: perms.eliminar ?? false,
         asignar: perms.asignar ?? false,
-      }, { onConflict: "user_id,pantalla" });
+      }, { onConflict: "rol_id,pantalla" });
     }
-
-    setSaving(false);
-    setSaved(true);
+    setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const handleCreateRol = async (e: React.FormEvent) => {
+    e.preventDefault(); setRolSaving(true);
+    if (editingRolId) {
+      await (supabase.from("roles") as any).update({ nombre: rolForm.nombre, descripcion: rolForm.descripcion }).eq("id", editingRolId);
+    } else {
+      await (supabase.from("roles") as any).insert({ nombre: rolForm.nombre, descripcion: rolForm.descripcion, is_admin: false });
+    }
+    setRolSaving(false); setRolModal(false); fetchData();
+  };
+
+  const handleDeleteRol = async (rolId: string) => {
+    const rol = roles.find((r) => r.id === rolId);
+    if (rol?.is_admin) return;
+    if (!confirm(`¿Eliminar el rol "${rol?.nombre}"? Los usuarios con este rol quedarán sin rol asignado.`)) return;
+    await (supabase.from("roles") as any).delete().eq("id", rolId);
+    if (selectedRol === rolId) setSelectedRol("");
+    fetchData();
+  };
+
   if (user && user.role !== "admin") {
-    return <AppLayout><div className="text-center py-20"><ShieldCheck className="w-10 h-10 text-surface-300 mx-auto mb-3" /><p className="text-sm text-surface-500">Solo los administradores pueden acceder a la configuración</p></div></AppLayout>;
+    return <AppLayout><div className="text-center py-20"><ShieldCheck className="w-10 h-10 text-surface-300 mx-auto mb-3" /><p className="text-sm text-surface-500">Solo administradores</p></div></AppLayout>;
   }
 
-  const selectedUserData = users.find((u) => u.userId === selectedUser);
+  const selectedRolData = roles.find((r) => r.id === selectedRol);
+  const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
 
   return (
     <AppLayout>
-      <div className="max-w-5xl mx-auto animate-fade-in">
+      <div className="max-w-6xl mx-auto animate-fade-in">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-surface-100 flex items-center justify-center"><Settings className="w-5 h-5 text-surface-600" /></div>
-          <div><h1 className="text-xl font-display font-bold text-surface-900">Configuración</h1><p className="text-sm text-surface-500">Permisos de acceso por usuario</p></div>
+          <div><h1 className="text-xl font-display font-bold text-surface-900">Configuración</h1><p className="text-sm text-surface-500">Roles, permisos y ajustes</p></div>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div>
-        ) : users.length === 0 ? (
-          <div className="card p-6 text-center py-12"><ShieldCheck className="w-8 h-8 text-surface-300 mx-auto mb-2" /><p className="text-sm text-surface-500">No hay usuarios estándar. Los administradores tienen acceso completo.</p></div>
-        ) : (
-          <div className="space-y-4">
-            {/* User selector */}
-            <div className="card p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <label className="text-sm font-medium text-surface-700">Usuario:</label>
-                  <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)}
-                    className="px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 min-w-[200px]">
-                    {users.map((u) => <option key={u.userId} value={u.userId}>{u.nombre} ({u.email})</option>)}
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  {selectedUserData && (
-                    <>
-                      <button onClick={() => toggleAllForUser(selectedUser, true)}
-                        className="px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100">
-                        Activar todo
-                      </button>
-                      <button onClick={() => toggleAllForUser(selectedUser, false)}
-                        className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100">
-                        Desactivar todo
-                      </button>
-                    </>
-                  )}
-                  <button onClick={handleSave} disabled={saving}
-                    className={cn("flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-all",
-                      saved ? "text-emerald-700 bg-emerald-100" : "text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-60")}>
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    {saved ? "Guardado" : "Guardar permisos"}
-                  </button>
-                </div>
-              </div>
-            </div>
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 border-b border-surface-200">
+          {[{ id: "roles" as ConfigTab, label: "Roles y permisos" }, { id: "general" as ConfigTab, label: "General" }].map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={cn("px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-all",
+                tab === t.id ? "border-brand-500 text-brand-600" : "border-transparent text-surface-500")}>
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-            {/* Permissions table */}
-            {selectedUserData && (
-              <div className="card overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-surface-50 border-b border-surface-200">
-                      <th className="text-left py-3 px-4 text-[10px] font-semibold text-surface-400 uppercase w-[180px]">Pantalla</th>
-                      {["ver", "crear", "editar", "eliminar", "asignar"].map((p) => (
-                        <th key={p} className="text-center py-3 px-3 text-[10px] font-semibold text-surface-400 uppercase">{PERMISO_LABELS[p]}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {PANTALLAS.map((pantalla) => (
-                      <tr key={pantalla.id} className="border-b border-surface-50 hover:bg-surface-50/50">
-                        <td className="py-3 px-4 font-medium text-surface-900">{pantalla.label}</td>
-                        {["ver", "crear", "editar", "eliminar", "asignar"].map((perm) => {
-                          const available = pantalla.permisos.includes(perm);
-                          const checked = selectedUserData.permisos[pantalla.id]?.[perm] ?? false;
-                          return (
-                            <td key={perm} className="text-center py-3 px-3">
-                              {available ? (
-                                <button onClick={() => togglePerm(selectedUserData.userId, pantalla.id, perm)}
-                                  className={cn("w-8 h-8 rounded-lg flex items-center justify-center mx-auto transition-all",
-                                    checked ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200" : "bg-red-50 text-red-400 hover:bg-red-100")}>
-                                  {checked ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                                </button>
-                              ) : (
-                                <span className="text-surface-200">—</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        {loading ? <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div> : (
+          <>
+            {/* ROLES TAB */}
+            {tab === "roles" && (
+              <div className="space-y-4">
+                {/* Rol selector + actions */}
+                <div className="card p-4">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <label className="text-sm font-medium text-surface-700">Rol:</label>
+                      <select value={selectedRol} onChange={(e) => { setSelectedRol(e.target.value); setSaved(false); }}
+                        className="px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 min-w-[200px]">
+                        {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}{r.is_admin ? " (Admin)" : ""}</option>)}
+                      </select>
+                      {selectedRolData && !selectedRolData.is_admin && (
+                        <>
+                          <button onClick={() => { setRolForm({ nombre: selectedRolData.nombre, descripcion: selectedRolData.descripcion, is_admin: false }); setEditingRolId(selectedRolData.id); setRolModal(true); }}
+                            className="p-2 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-600"><Pencil className="w-4 h-4" /></button>
+                          <button onClick={() => handleDeleteRol(selectedRolData.id)}
+                            className="p-2 rounded-lg text-surface-400 hover:bg-red-50 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => { setRolForm({ nombre: "", descripcion: "", is_admin: false }); setEditingRolId(null); setRolModal(true); }}
+                        className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100">
+                        <Plus className="w-4 h-4" /> Nuevo rol
+                      </button>
+                      {selectedRolData && !selectedRolData.is_admin && (
+                        <>
+                          <button onClick={() => toggleAll(selectedRol, true)} className="px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100">Todo</button>
+                          <button onClick={() => toggleAll(selectedRol, false)} className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100">Nada</button>
+                          <button onClick={handleSavePermisos} disabled={saving}
+                            className={cn("flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg",
+                              saved ? "text-emerald-700 bg-emerald-100" : "text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-60")}>
+                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                            {saved ? "Guardado" : "Guardar"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {selectedRolData?.descripcion && <p className="text-xs text-surface-400 mt-2">{selectedRolData.descripcion}</p>}
+                </div>
+
+                {/* Permissions table */}
+                {selectedRolData && (
+                  <div className="card overflow-hidden">
+                    {selectedRolData.is_admin ? (
+                      <div className="p-8 text-center"><ShieldCheck className="w-8 h-8 text-emerald-500 mx-auto mb-2" /><p className="text-sm text-surface-600">El rol Administrador tiene acceso total. No se puede modificar.</p></div>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-surface-50 border-b border-surface-200">
+                            <th className="text-left py-3 px-4 text-[10px] font-semibold text-surface-400 uppercase w-[180px]">Menú / Pantalla</th>
+                            {PERMISOS.map((p) => (
+                              <th key={p} className="text-center py-3 px-3 text-[10px] font-semibold text-surface-400 uppercase">{PERMISO_LABELS[p]}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PANTALLAS.map((pantalla) => (
+                            <tr key={pantalla.id} className="border-b border-surface-50 hover:bg-surface-50/50">
+                              <td className="py-3 px-4 font-medium text-surface-900">{pantalla.label}</td>
+                              {PERMISOS.map((perm) => {
+                                const checked = selectedRolData.permisos[pantalla.id]?.[perm] ?? false;
+                                return (
+                                  <td key={perm} className="text-center py-3 px-3">
+                                    <button onClick={() => togglePerm(selectedRolData.id, pantalla.id, perm)}
+                                      className={cn("w-8 h-8 rounded-lg flex items-center justify-center mx-auto transition-all",
+                                        checked ? "bg-emerald-100 text-emerald-600 hover:bg-emerald-200" : "bg-red-50 text-red-400 hover:bg-red-100")}>
+                                      {checked ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
-            <p className="text-xs text-surface-400 text-center">Los administradores tienen acceso completo a todas las pantallas y no aparecen en esta lista.</p>
-          </div>
+            {/* GENERAL TAB */}
+            {tab === "general" && (
+              <div className="card p-6">
+                <h2 className="text-sm font-semibold text-surface-900 mb-4">Ajustes generales</h2>
+                <p className="text-sm text-surface-500">Próximamente: configuración de empresa, logo, notificaciones, y más.</p>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Create/Edit rol modal */}
+      <Modal open={rolModal} onClose={() => setRolModal(false)} title={editingRolId ? "Editar rol" : "Nuevo rol"} size="sm">
+        <form onSubmit={handleCreateRol} className="space-y-4">
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre del rol *</label><input type="text" required value={rolForm.nombre} onChange={(e) => setRolForm({ ...rolForm, nombre: e.target.value })} placeholder="Ej: Jefe de obra" className={ic} /></div>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Descripción</label><input type="text" value={rolForm.descripcion} onChange={(e) => setRolForm({ ...rolForm, descripcion: e.target.value })} placeholder="Descripción del rol" className={ic} /></div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setRolModal(false)} className="px-4 py-2.5 text-sm text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">Cancelar</button>
+            <button type="submit" disabled={rolSaving || !rolForm.nombre} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+              {rolSaving && <Loader2 className="w-4 h-4 animate-spin" />}{editingRolId ? "Guardar" : "Crear"}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </AppLayout>
   );
 }
