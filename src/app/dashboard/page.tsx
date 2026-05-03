@@ -18,6 +18,7 @@ type AssigView = "dia" | "semana";
 
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "maquinaria", "vehiculo"];
 const DAY_NAMES = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
@@ -75,7 +76,7 @@ export default function DashboardPage() {
         if (!CONFLICT_TYPES.includes(a.recurso_tipo)) return;
         const s = new Date(a.fecha_inicio); const e = new Date(a.fecha_fin);
         for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-          const ds = d.toISOString().split("T")[0];
+          const ds = toDS(d);
           const key = `${a.recurso_tipo}|${a.recurso_id}|${ds}`;
           if (!rdm[key]) rdm[key] = []; rdm[key].push({ obraId: a.obra_id });
         }
@@ -99,7 +100,7 @@ export default function DashboardPage() {
   const computeAssignments = useCallback(() => {
     const dates: string[] = [];
     if (assigView === "dia") {
-      dates.push(assigDate.toISOString().split("T")[0]);
+      dates.push(toDS(assigDate));
     } else {
       // Week: Mon to Sun
       const d = new Date(assigDate);
@@ -107,7 +108,7 @@ export default function DashboardPage() {
       const monday = new Date(d); monday.setDate(diff);
       for (let i = 0; i < 7; i++) {
         const dd = new Date(monday); dd.setDate(monday.getDate() + i);
-        dates.push(dd.toISOString().split("T")[0]);
+        dates.push(dtoDS(d));
       }
     }
 
@@ -284,7 +285,7 @@ export default function DashboardPage() {
                   <button onClick={() => navigateDate(1)} className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
                 </div>
                 {/* Date picker */}
-                <input type="date" value={assigDate.toISOString().split("T")[0]}
+                <input type="date" value={toDS(assigDate)}
                   onChange={(e) => { if (e.target.value) setAssigDate(new Date(e.target.value)); }}
                   className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
                 <span className="text-xs text-surface-400">{totalPersons} pers.</span>
@@ -293,7 +294,7 @@ export default function DashboardPage() {
 
             {/* Day view */}
             {assigView === "dia" && (() => {
-              const ds = assigDate.toISOString().split("T")[0];
+              const ds = toDS(assigDate);
               const people = assigData[ds] || [];
               return people.length === 0 ? (
                 <p className="text-sm text-surface-400 text-center py-8">Sin asignaciones para este día</p>
@@ -327,7 +328,7 @@ export default function DashboardPage() {
                     <div className="text-[10px] font-semibold text-surface-400 uppercase px-2 py-1">Persona</div>
                     {assigDates.map((ds) => {
                       const d = new Date(ds);
-                      const isToday = ds === new Date().toISOString().split("T")[0];
+                      const isToday = ds === toDS(new Date());
                       return (
                         <div key={ds} className={cn("text-[10px] font-semibold text-center px-1 py-1 rounded", isToday ? "bg-brand-50 text-brand-700" : "text-surface-400 uppercase")}>
                           {DAY_NAMES[d.getDay()]} {d.getDate()}
@@ -357,7 +358,7 @@ export default function DashboardPage() {
                             {assigDates.map((ds) => {
                               const dayPeople = assigData[ds] || [];
                               const person = dayPeople.find((p) => p.nombre === nombre);
-                              const isToday = ds === new Date().toISOString().split("T")[0];
+                              const isToday = ds === toDS(new Date());
                               return (
                                 <div key={ds} className={cn("min-h-[32px] rounded px-1 py-0.5 flex flex-wrap gap-0.5 items-center", isToday ? "bg-brand-50/50" : "bg-surface-50")}>
                                   {person?.obras.map((o, j) => (
