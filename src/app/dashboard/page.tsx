@@ -300,7 +300,7 @@ export default function DashboardPage() {
               return people.length === 0 ? (
                 <p className="text-sm text-surface-400 text-center py-8">Sin asignaciones para este día</p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 overflow-y-auto max-h-[300px]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 ">
                   {people.map((m, i) => (
                     <div key={i} className="flex items-center gap-2.5 p-2.5 bg-surface-50 rounded-lg border border-surface-100">
                       <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[9px] font-bold shrink-0">
@@ -347,7 +347,7 @@ export default function DashboardPage() {
                     if (sortedPeople.length === 0) return <p className="text-sm text-surface-400 text-center py-6">Sin asignaciones esta semana</p>;
 
                     return (
-                      <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                      <div className="space-y-1 ">
                         {sortedPeople.map((nombre) => (
                           <div key={nombre} className="grid grid-cols-8 gap-1 items-center">
                             <div className="flex items-center gap-1.5 px-2 py-1.5">
