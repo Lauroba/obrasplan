@@ -109,7 +109,7 @@ export default function DashboardPage() {
       const monday = new Date(d); monday.setDate(diff);
       for (let i = 0; i < 7; i++) {
         const dd = new Date(monday); dd.setDate(monday.getDate() + i);
-        dates.push(dtoDS(d));
+        dates.push(toDS(dd));
       }
     }
 

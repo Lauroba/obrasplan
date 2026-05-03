@@ -31,6 +31,7 @@ const DAY_WIDTHS: Record<ViewMode, number> = { week: 110, month: 40, year: 18 };
 const DAYS_COUNT: Record<ViewMode, number> = { week: 7, month: 31, year: 364 };
 const LABEL_W = 210;
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "maquinaria", "vehiculo"];
+const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const customCollision: CollisionDetection = (args) => {
   const aid = String(args.active.id);
@@ -265,14 +266,14 @@ export default function PlanificacionPage() {
 
   const dw = DAY_WIDTHS[viewMode]; const daysN = DAYS_COUNT[viewMode];
   const days = useMemo(() => { const a: Date[] = []; for (let i = 0; i < daysN; i++) { const d = new Date(startDate); d.setDate(d.getDate() + i); a.push(d); } return a; }, [startDate, daysN]);
-  const dateStrs = useMemo(() => days.map((d) => d.toISOString().split("T")[0]), [days]);
+  const dateStrs = useMemo(() => days.map((d) => toDS(d)), [days]);
 
   const assignGrid = useMemo(() => {
     const g: Record<string, Asignacion[]> = {};
     asignaciones.forEach((a) => {
       const s = new Date(a.fecha_inicio); const e = new Date(a.fecha_fin);
       for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-        const ds = d.toISOString().split("T")[0];
+        const ds = toDS(d);
         // Key by obra+date (for Vista Obras)
         const k1 = `${a.obra_id}|${ds}`; if (!g[k1]) g[k1] = []; g[k1].push(a);
         // Key by person+date (for Vista RRHH) — only humano type
@@ -289,7 +290,7 @@ export default function PlanificacionPage() {
       if (!CONFLICT_TYPES.includes(a.recurso_tipo)) return;
       const s = new Date(a.fecha_inicio); const e = new Date(a.fecha_fin);
       for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-        const ds = d.toISOString().split("T")[0];
+        const ds = toDS(d);
         const key = `${a.recurso_tipo}|${a.recurso_id}|${ds}`;
         if (!rdm[key]) rdm[key] = []; rdm[key].push({ obraId: a.obra_id });
       }
@@ -408,7 +409,7 @@ export default function PlanificacionPage() {
     const s = new Date(manualForm.fecha_inicio); const e = new Date(manualForm.fecha_fin);
     const inserts: any[] = [];
     for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      inserts.push({ obra_id: manualModal.obraId, recurso_tipo: manualForm.recurso_tipo, recurso_id: manualForm.recurso_id, fecha_inicio: d.toISOString().split("T")[0], fecha_fin: d.toISOString().split("T")[0] });
+      inserts.push({ obra_id: manualModal.obraId, recurso_tipo: manualForm.recurso_tipo, recurso_id: manualForm.recurso_id, fecha_inicio: toDS(d), fecha_fin: toDS(d) });
     }
     if (inserts.length > 0) await supabase.from("asignaciones").insert(inserts);
     setManualSaving(false); setManualModal(null); fetchData();
