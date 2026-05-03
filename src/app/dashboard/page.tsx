@@ -3,17 +3,21 @@
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuthStore } from "@/hooks/useAuth";
 import { createClient } from "@/lib/supabase/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { RecursoTipo } from "@/lib/types/database";
 import {
-  CheckCircle2, Clock, AlertTriangle, ArrowRight, ListTodo,
-  Building2, ClipboardList, Users, Wrench, Truck, Calendar, FileSignature, Loader2
+  CheckCircle2, Clock, AlertTriangle, ListTodo,
+  Building2, ClipboardList, Users, Wrench, Truck, Calendar,
+  Loader2, ChevronLeft, ChevronRight
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 
 interface ConflictInfo { recursoName: string; recursoTipo: RecursoTipo; date: string; obras: string[] }
+type AssigView = "dia" | "semana";
+
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "maquinaria", "vehiculo"];
+const DAY_NAMES = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
@@ -21,22 +25,28 @@ export default function DashboardPage() {
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   const [obrasActivas, setObrasActivas] = useState<any[]>([]);
   const [partesSinFirma, setPartesSinFirma] = useState<any[]>([]);
-  const [manana, setManana] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [taskFilter, setTaskFilter] = useState<"mine" | "all">("mine");
 
+  // Assignments panel state
+  const [assigView, setAssigView] = useState<AssigView>("dia");
+  const [assigDate, setAssigDate] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
+  const [assigData, setAssigData] = useState<Record<string, { nombre: string; obras: { nombre: string; color: string }[] }[]>>({});
+  const [assigLoading, setAssigLoading] = useState(false);
+  const [allAsignaciones, setAllAsignaciones] = useState<any[]>([]);
+  const [rrhhNames, setRrhhNames] = useState<Record<string, string>>({});
+  const [obraMap, setObraMap] = useState<Record<string, any>>({});
+
+  // Fetch main data once
   useEffect(() => {
     const fetchAll = async () => {
       const supabase = createClient();
-      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split("T")[0];
-
       const [tareasR, obrasR, partesR, asigR, rrhhR, maqR, vehR] = await Promise.all([
         supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
         supabase.from("obras").select("*, estado_custom:estados_obra(nombre, color)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
         supabase.from("asignaciones").select("*"),
-        supabase.from("recursos_humanos").select("id, nombre"),
+        supabase.from("recursos_humanos").select("id, nombre").eq("activo", true),
         supabase.from("maquinaria").select("id, nombre"),
         supabase.from("vehiculos").select("id, nombre"),
       ]);
@@ -44,66 +54,94 @@ export default function DashboardPage() {
       setTareas((tareasR.data || []) as any[]);
       setObrasActivas((obrasR.data || []) as any[]);
       setPartesSinFirma((partesR.data || []) as any[]);
+      setAllAsignaciones(asigR.data || []);
 
-      // Tomorrow assignments
-      const nameMap: Record<string, string> = {};
-      (rrhhR.data || []).forEach((r: any) => nameMap[`humano|${r.id}`] = r.nombre);
-      const obraNameMap: Record<string, any> = {};
-      (obrasR.data || []).forEach((o: any) => obraNameMap[o.id] = o);
+      const names: Record<string, string> = {};
+      (rrhhR.data || []).forEach((r: any) => names[r.id] = r.nombre);
+      setRrhhNames(names);
 
-      const tomorrowAssigs: { nombre: string; obras: { nombre: string; color: string }[] }[] = [];
-      const personObras: Record<string, Set<string>> = {};
-      (asigR.data || []).forEach((a: any) => {
-        if (a.recurso_tipo !== "humano") return;
-        if (a.fecha_inicio <= tomorrowStr && a.fecha_fin >= tomorrowStr) {
-          if (!personObras[a.recurso_id]) personObras[a.recurso_id] = new Set();
-          personObras[a.recurso_id].add(a.obra_id);
-        }
-      });
-      Object.entries(personObras).forEach(([personId, obraIds]) => {
-        const nombre = nameMap[`humano|${personId}`] || "?";
-        const obras = Array.from(obraIds).map((oid) => ({ nombre: obraNameMap[oid]?.nombre || "?", color: obraNameMap[oid]?.color || "#999" }));
-        tomorrowAssigs.push({ nombre, obras });
-      });
-      tomorrowAssigs.sort((a, b) => a.nombre.localeCompare(b.nombre));
-      setManana(tomorrowAssigs);
+      const om: Record<string, any> = {};
+      (obrasR.data || []).forEach((o: any) => om[o.id] = o);
+      setObraMap(om);
 
       // Conflicts
-      const resourceDayMap: Record<string, { obraId: string }[]> = {};
+      const nameMap: Record<string, string> = {};
+      (rrhhR.data || []).forEach((r: any) => nameMap[`humano|${r.id}`] = r.nombre);
+      (maqR.data || []).forEach((r: any) => nameMap[`maquinaria|${r.id}`] = r.nombre);
+      (vehR.data || []).forEach((r: any) => nameMap[`vehiculo|${r.id}`] = r.nombre);
+
+      const rdm: Record<string, { obraId: string }[]> = {};
       (asigR.data || []).forEach((a: any) => {
         if (!CONFLICT_TYPES.includes(a.recurso_tipo)) return;
         const s = new Date(a.fecha_inicio); const e = new Date(a.fecha_fin);
         for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
           const ds = d.toISOString().split("T")[0];
           const key = `${a.recurso_tipo}|${a.recurso_id}|${ds}`;
-          if (!resourceDayMap[key]) resourceDayMap[key] = [];
-          resourceDayMap[key].push({ obraId: a.obra_id });
+          if (!rdm[key]) rdm[key] = []; rdm[key].push({ obraId: a.obra_id });
         }
       });
-      (maqR.data || []).forEach((r: any) => nameMap[`maquinaria|${r.id}`] = r.nombre);
-      (vehR.data || []).forEach((r: any) => nameMap[`vehiculo|${r.id}`] = r.nombre);
-
-      const conflictList: ConflictInfo[] = [];
-      const seen = new Set<string>();
-      Object.entries(resourceDayMap).forEach(([key, entries]) => {
-        const uniqueObras = Array.from(new Set(entries.map((e) => e.obraId)));
-        if (uniqueObras.length > 1) {
-          const [tipo, recursoId, date] = key.split("|");
-          const skey = `${recursoId}|${date}`;
-          if (seen.has(skey)) return;
-          seen.add(skey);
-          conflictList.push({
-            recursoName: nameMap[`${tipo}|${recursoId}`] || "?",
-            recursoTipo: tipo as RecursoTipo,
-            date, obras: uniqueObras.map((id) => obraNameMap[id]?.nombre || "?"),
-          });
+      const cList: ConflictInfo[] = []; const seen = new Set<string>();
+      Object.entries(rdm).forEach(([key, entries]) => {
+        const uObras = Array.from(new Set(entries.map((e) => e.obraId)));
+        if (uObras.length > 1) {
+          const [tipo, rid, date] = key.split("|");
+          const sk = `${rid}|${date}`; if (seen.has(sk)) return; seen.add(sk);
+          cList.push({ recursoName: nameMap[`${tipo}|${rid}`] || "?", recursoTipo: tipo as RecursoTipo, date, obras: uObras.map((id) => om[id]?.nombre || "?") });
         }
       });
-      setConflicts(conflictList.slice(0, 10));
+      setConflicts(cList.slice(0, 10));
       setLoading(false);
     };
     fetchAll();
   }, [user]);
+
+  // Compute assignments for selected date(s)
+  const computeAssignments = useCallback(() => {
+    const dates: string[] = [];
+    if (assigView === "dia") {
+      dates.push(assigDate.toISOString().split("T")[0]);
+    } else {
+      // Week: Mon to Sun
+      const d = new Date(assigDate);
+      const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(d); monday.setDate(diff);
+      for (let i = 0; i < 7; i++) {
+        const dd = new Date(monday); dd.setDate(monday.getDate() + i);
+        dates.push(dd.toISOString().split("T")[0]);
+      }
+    }
+
+    const result: Record<string, { nombre: string; obras: { nombre: string; color: string }[] }[]> = {};
+    dates.forEach((ds) => {
+      const personObras: Record<string, Set<string>> = {};
+      allAsignaciones.forEach((a: any) => {
+        if (a.recurso_tipo !== "humano") return;
+        if (a.fecha_inicio <= ds && a.fecha_fin >= ds) {
+          if (!personObras[a.recurso_id]) personObras[a.recurso_id] = new Set();
+          personObras[a.recurso_id].add(a.obra_id);
+        }
+      });
+      const list: { nombre: string; obras: { nombre: string; color: string }[] }[] = [];
+      Object.entries(personObras).forEach(([pid, oids]) => {
+        list.push({
+          nombre: rrhhNames[pid] || "?",
+          obras: Array.from(oids).map((oid) => ({ nombre: obraMap[oid]?.nombre || "?", color: obraMap[oid]?.color || "#999" })),
+        });
+      });
+      list.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      result[ds] = list;
+    });
+    setAssigData(result);
+  }, [assigDate, assigView, allAsignaciones, rrhhNames, obraMap]);
+
+  useEffect(() => { if (!loading) computeAssignments(); }, [computeAssignments, loading]);
+
+  const navigateDate = (dir: number) => {
+    const d = new Date(assigDate);
+    d.setDate(d.getDate() + (assigView === "dia" ? dir : dir * 7));
+    setAssigDate(d);
+  };
+  const goToday = () => setAssigDate(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
   const prioColors: Record<string, string> = { alta: "bg-red-100 text-red-700", media: "bg-amber-100 text-amber-700", baja: "bg-blue-100 text-blue-700" };
   const tipoIcon: Record<RecursoTipo, typeof Users> = { humano: Users, maquinaria: Wrench, vehiculo: Truck, material: ListTodo };
@@ -111,6 +149,8 @@ export default function DashboardPage() {
   const greeting = () => { const h = new Date().getHours(); if (h < 12) return "Buenos días"; if (h < 20) return "Buenas tardes"; return "Buenas noches"; };
 
   const filteredTareas = taskFilter === "mine" ? tareas.filter((t) => t.asignado_a === user?.recurso_id) : tareas;
+  const assigDates = Object.keys(assigData).sort();
+  const totalPersons = assigView === "dia" ? (assigData[assigDates[0]] || []).length : Object.values(assigData).reduce((acc, v) => Math.max(acc, v.length), 0);
 
   if (loading) return <AppLayout><div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div></AppLayout>;
 
@@ -118,15 +158,15 @@ export default function DashboardPage() {
     <AppLayout>
       <div className="max-w-7xl mx-auto animate-fade-in">
         <div className="mb-6">
-          <h1 className="text-2xl font-display font-bold text-surface-900">{greeting()}, {user?.nombre?.split(" ")[0]}</h1>
-          <p className="text-surface-500 mt-1">{new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</p>
+          <h1 className="text-xl lg:text-2xl font-display font-bold text-surface-900">{greeting()}, {user?.nombre?.split(" ")[0]}</h1>
+          <p className="text-surface-500 text-sm mt-1">{new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Mis tareas pendientes */}
-          <div className="card p-5 flex flex-col max-h-[420px]">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          {/* Tareas */}
+          <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">
             <div className="flex items-center justify-between mb-3 shrink-0">
-              <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><ListTodo className="w-4 h-4 text-brand-600" />Tareas pendientes</h2>
+              <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><ListTodo className="w-4 h-4 text-brand-600" />Tareas</h2>
               <div className="flex items-center gap-2">
                 <div className="flex bg-surface-100 rounded p-0.5">
                   <button onClick={() => setTaskFilter("mine")} className={cn("px-2 py-0.5 text-[10px] font-medium rounded", taskFilter === "mine" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>Mías</button>
@@ -136,11 +176,11 @@ export default function DashboardPage() {
               </div>
             </div>
             {filteredTareas.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-4"><CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" /><p className="text-sm text-surface-500">Sin tareas pendientes</p></div>
+              <div className="flex-1 flex flex-col items-center justify-center py-4"><CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" /><p className="text-sm text-surface-500">Sin tareas</p></div>
             ) : (
               <div className="space-y-1.5 overflow-y-auto flex-1">
                 {filteredTareas.slice(0, 15).map((t) => (
-                  <Link key={t.id} href={`/obras/${t.obra_id}`} className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-surface-50 border border-surface-100 transition-colors">
+                  <Link key={t.id} href={`/obras/${t.obra_id}`} className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-surface-50 border border-surface-100">
                     <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: t.obra?.color || "#DC2626" }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-surface-900 truncate">{t.descripcion}</p>
@@ -157,24 +197,21 @@ export default function DashboardPage() {
           </div>
 
           {/* Conflictos */}
-          <div className="card p-5 flex flex-col max-h-[420px]">
+          <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">
             <div className="flex items-center justify-between mb-3 shrink-0">
               <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-500" />Conflictos</h2>
               {conflicts.length > 0 && <span className="text-xs text-red-500 font-medium">{conflicts.length}</span>}
             </div>
             {conflicts.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-4"><CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" /><p className="text-sm text-surface-500">Sin conflictos</p></div>
+              <div className="flex-1 flex flex-col items-center justify-center py-4"><CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" /><p className="text-sm text-surface-500">Sin conflictos</p></div>
             ) : (
               <div className="space-y-1.5 overflow-y-auto flex-1">
                 {conflicts.map((c, i) => {
                   const Icon = tipoIcon[c.recursoTipo];
                   return (
-                    <div key={i} className="flex items-start gap-2.5 p-2.5 bg-red-50 rounded-lg border border-red-100">
+                    <div key={i} className="flex items-start gap-2.5 p-2 bg-red-50 rounded-lg border border-red-100">
                       <Icon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-red-800">{c.recursoName}</p>
-                        <p className="text-[10px] text-red-600">{new Date(c.date).toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })} — {c.obras.join(" y ")}</p>
-                      </div>
+                      <div className="min-w-0"><p className="text-xs font-medium text-red-800">{c.recursoName}</p><p className="text-[10px] text-red-600">{new Date(c.date).toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })} — {c.obras.join(" y ")}</p></div>
                     </div>
                   );
                 })}
@@ -183,45 +220,37 @@ export default function DashboardPage() {
           </div>
 
           {/* Obras activas */}
-          <div className="card p-5 flex flex-col max-h-[420px]">
+          <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">
             <div className="flex items-center justify-between mb-3 shrink-0">
               <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><Building2 className="w-4 h-4 text-brand-600" />Obras activas</h2>
               <span className="text-xs text-surface-400">{obrasActivas.length}</span>
             </div>
             <div className="space-y-1.5 overflow-y-auto flex-1">
               {obrasActivas.map((o) => (
-                <Link key={o.id} href={`/obras/${o.id}`} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-surface-50 border border-surface-100 transition-colors group">
+                <Link key={o.id} href={`/obras/${o.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-50 border border-surface-100 group">
                   <div className="w-2 h-8 rounded-full shrink-0" style={{ backgroundColor: o.color || "#DC2626" }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-surface-900 group-hover:text-brand-600 truncate">{o.nombre}</p>
-                    <p className="text-[10px] text-surface-400 truncate">{o.ubicacion || ""}</p>
-                  </div>
-                  {o.estado_custom && (
-                    <span className="text-[9px] px-2 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: o.estado_custom.color }}>{o.estado_custom.nombre}</span>
-                  )}
+                  <div className="flex-1 min-w-0"><p className="text-xs font-medium text-surface-900 group-hover:text-brand-600 truncate">{o.nombre}</p><p className="text-[10px] text-surface-400 truncate">{o.ubicacion || ""}</p></div>
+                  {o.estado_custom && <span className="text-[9px] px-2 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: o.estado_custom.color }}>{o.estado_custom.nombre}</span>}
                 </Link>
               ))}
-              {obrasActivas.length === 0 && <p className="text-sm text-surface-400 text-center py-4">Sin obras activas</p>}
+              {obrasActivas.length === 0 && <p className="text-sm text-surface-400 text-center py-4">Sin obras</p>}
             </div>
           </div>
 
-          {/* Partes pendientes de firmar */}
-          <div className="card p-5 flex flex-col max-h-[420px]">
+          {/* Partes sin firmar */}
+          <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">
             <div className="flex items-center justify-between mb-3 shrink-0">
               <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><ClipboardList className="w-4 h-4 text-orange-500" />Partes sin firmar</h2>
               <span className="text-xs text-surface-400">{partesSinFirma.length}</span>
             </div>
             {partesSinFirma.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-4"><CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" /><p className="text-sm text-surface-500">Todos firmados</p></div>
+              <div className="flex-1 flex flex-col items-center justify-center py-4"><CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" /><p className="text-sm text-surface-500">Todos firmados</p></div>
             ) : (
               <div className="space-y-1.5 overflow-y-auto flex-1">
                 {partesSinFirma.map((p) => (
-                  <Link key={p.id} href={`/partes/${p.id}`} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-surface-50 border border-surface-100 transition-colors group">
+                  <Link key={p.id} href={`/partes/${p.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-50 border border-surface-100 group">
                     <div className="w-1.5 h-8 rounded-full shrink-0" style={{ backgroundColor: p.obra?.color || "#D4D4D4" }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-surface-900 group-hover:text-brand-600">{p.creator?.nombre || "?"} — {p.obra?.nombre || "Sin obra"}</p>
-                      <p className="text-[10px] text-surface-400">{new Date(p.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</p>
-                    </div>
+                    <div className="flex-1 min-w-0"><p className="text-xs font-medium text-surface-900 group-hover:text-brand-600">{p.creator?.nombre || "?"} — {p.obra?.nombre || "Sin obra"}</p><p className="text-[10px] text-surface-400">{new Date(p.fecha).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</p></div>
                     <div className="flex gap-1 shrink-0">
                       {!p.firma_data && <span className="text-[9px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Resp.</span>}
                       {!p.firma_cliente && <span className="text-[9px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Cliente</span>}
@@ -232,31 +261,117 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Mañana - Quién trabaja */}
-          <div className="card p-5 lg:col-span-2 flex flex-col max-h-[350px]">
-            <div className="flex items-center justify-between mb-3 shrink-0">
-              <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><Calendar className="w-4 h-4 text-violet-500" />Mañana — {new Date(Date.now() + 86400000).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</h2>
-              <span className="text-xs text-surface-400">{manana.length} personas</span>
+          {/* Asignaciones - navegable por día/semana */}
+          <div className="card p-4 lg:p-5 lg:col-span-2 flex flex-col">
+            <div className="flex items-center justify-between mb-3 shrink-0 flex-wrap gap-2">
+              <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-violet-500" />Asignaciones
+              </h2>
+              <div className="flex items-center gap-2">
+                {/* View toggle */}
+                <div className="flex bg-surface-100 rounded p-0.5">
+                  <button onClick={() => setAssigView("dia")} className={cn("px-2 py-0.5 text-[10px] font-medium rounded", assigView === "dia" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>Día</button>
+                  <button onClick={() => setAssigView("semana")} className={cn("px-2 py-0.5 text-[10px] font-medium rounded", assigView === "semana" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>Semana</button>
+                </div>
+                {/* Date navigation */}
+                <div className="flex items-center gap-1">
+                  <button onClick={() => navigateDate(-1)} className="p-1 rounded text-surface-400 hover:bg-surface-100"><ChevronLeft className="w-4 h-4" /></button>
+                  <button onClick={goToday} className="px-2 py-0.5 text-[10px] font-medium text-brand-600 bg-brand-50 rounded hover:bg-brand-100">Hoy</button>
+                  <button onClick={() => navigateDate(1)} className="p-1 rounded text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
+                </div>
+                <span className="text-xs text-surface-600 font-medium">
+                  {assigView === "dia"
+                    ? assigDate.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
+                    : `${new Date(assigDates[0] || assigDate.toISOString()).toLocaleDateString("es-ES", { day: "numeric", month: "short" })} — ${new Date(assigDates[assigDates.length - 1] || assigDate.toISOString()).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`
+                  }
+                </span>
+                <span className="text-xs text-surface-400">{totalPersons} personas</span>
+              </div>
             </div>
-            {manana.length === 0 ? (
-              <p className="text-sm text-surface-400 text-center py-6">Sin asignaciones para mañana</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 overflow-y-auto flex-1">
-                {manana.map((m, i) => (
-                  <div key={i} className="flex items-center gap-2.5 p-2.5 bg-surface-50 rounded-lg border border-surface-100">
-                    <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[9px] font-bold shrink-0">
-                      {m.nombre.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-surface-900 truncate">{m.nombre}</p>
-                      <div className="flex gap-1 mt-0.5 flex-wrap">
-                        {m.obras.map((o: any, j: number) => (
-                          <span key={j} className="text-[9px] text-white px-1.5 py-0.5 rounded" style={{ backgroundColor: o.color }}>{o.nombre}</span>
-                        ))}
+
+            {/* Day view */}
+            {assigView === "dia" && (() => {
+              const ds = assigDate.toISOString().split("T")[0];
+              const people = assigData[ds] || [];
+              return people.length === 0 ? (
+                <p className="text-sm text-surface-400 text-center py-8">Sin asignaciones para este día</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 overflow-y-auto max-h-[300px]">
+                  {people.map((m, i) => (
+                    <div key={i} className="flex items-center gap-2.5 p-2.5 bg-surface-50 rounded-lg border border-surface-100">
+                      <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[9px] font-bold shrink-0">
+                        {m.nombre.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-surface-900 truncate">{m.nombre}</p>
+                        <div className="flex gap-1 mt-0.5 flex-wrap">
+                          {m.obras.map((o: any, j: number) => (
+                            <span key={j} className="text-[9px] text-white px-1.5 py-0.5 rounded" style={{ backgroundColor: o.color }}>{o.nombre}</span>
+                          ))}
+                        </div>
                       </div>
                     </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Week view */}
+            {assigView === "semana" && (
+              <div className="overflow-x-auto">
+                <div className="min-w-[700px]">
+                  {/* Day headers */}
+                  <div className="grid grid-cols-8 gap-1 mb-2">
+                    <div className="text-[10px] font-semibold text-surface-400 uppercase px-2 py-1">Persona</div>
+                    {assigDates.map((ds) => {
+                      const d = new Date(ds);
+                      const isToday = ds === new Date().toISOString().split("T")[0];
+                      return (
+                        <div key={ds} className={cn("text-[10px] font-semibold text-center px-1 py-1 rounded", isToday ? "bg-brand-50 text-brand-700" : "text-surface-400 uppercase")}>
+                          {DAY_NAMES[d.getDay()]} {d.getDate()}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                  {/* People rows */}
+                  {(() => {
+                    // Get all unique people across the week
+                    const allPeople = new Set<string>();
+                    assigDates.forEach((ds) => (assigData[ds] || []).forEach((p) => allPeople.add(p.nombre)));
+                    const sortedPeople = Array.from(allPeople).sort();
+
+                    if (sortedPeople.length === 0) return <p className="text-sm text-surface-400 text-center py-6">Sin asignaciones esta semana</p>;
+
+                    return (
+                      <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                        {sortedPeople.map((nombre) => (
+                          <div key={nombre} className="grid grid-cols-8 gap-1 items-center">
+                            <div className="flex items-center gap-1.5 px-2 py-1.5">
+                              <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[7px] font-bold shrink-0">
+                                {nombre.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+                              </div>
+                              <span className="text-[10px] font-medium text-surface-900 truncate">{nombre}</span>
+                            </div>
+                            {assigDates.map((ds) => {
+                              const dayPeople = assigData[ds] || [];
+                              const person = dayPeople.find((p) => p.nombre === nombre);
+                              const isToday = ds === new Date().toISOString().split("T")[0];
+                              return (
+                                <div key={ds} className={cn("min-h-[32px] rounded px-1 py-0.5 flex flex-wrap gap-0.5 items-center", isToday ? "bg-brand-50/50" : "bg-surface-50")}>
+                                  {person?.obras.map((o, j) => (
+                                    <span key={j} className="text-[8px] text-white px-1 py-0.5 rounded leading-tight" style={{ backgroundColor: o.color }}>
+                                      {o.nombre.length > 10 ? o.nombre.substring(0, 10) + "…" : o.nombre}
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             )}
           </div>
