@@ -265,7 +265,11 @@ export default function DashboardPage() {
           <div className="card p-4 lg:p-5 lg:col-span-2 flex flex-col">
             <div className="flex items-center justify-between mb-3 shrink-0 flex-wrap gap-2">
               <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-violet-500" />Asignaciones
+                <Calendar className="w-4 h-4 text-violet-500" />
+                {assigView === "dia"
+                  ? assigDate.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
+                  : `Semana del ${new Date(assigDates[0] || assigDate.toISOString()).toLocaleDateString("es-ES", { day: "numeric", month: "long" })}`
+                }
               </h2>
               <div className="flex items-center gap-2">
                 {/* View toggle */}
@@ -275,17 +279,15 @@ export default function DashboardPage() {
                 </div>
                 {/* Date navigation */}
                 <div className="flex items-center gap-1">
-                  <button onClick={() => navigateDate(-1)} className="p-1 rounded text-surface-400 hover:bg-surface-100"><ChevronLeft className="w-4 h-4" /></button>
-                  <button onClick={goToday} className="px-2 py-0.5 text-[10px] font-medium text-brand-600 bg-brand-50 rounded hover:bg-brand-100">Hoy</button>
-                  <button onClick={() => navigateDate(1)} className="p-1 rounded text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
+                  <button onClick={() => navigateDate(-1)} className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100"><ChevronLeft className="w-4 h-4" /></button>
+                  <button onClick={goToday} className="px-2.5 py-1 text-[11px] font-medium text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100">Hoy</button>
+                  <button onClick={() => navigateDate(1)} className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
                 </div>
-                <span className="text-xs text-surface-600 font-medium">
-                  {assigView === "dia"
-                    ? assigDate.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
-                    : `${new Date(assigDates[0] || assigDate.toISOString()).toLocaleDateString("es-ES", { day: "numeric", month: "short" })} — ${new Date(assigDates[assigDates.length - 1] || assigDate.toISOString()).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`
-                  }
-                </span>
-                <span className="text-xs text-surface-400">{totalPersons} personas</span>
+                {/* Date picker */}
+                <input type="date" value={assigDate.toISOString().split("T")[0]}
+                  onChange={(e) => { if (e.target.value) setAssigDate(new Date(e.target.value)); }}
+                  className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+                <span className="text-xs text-surface-400">{totalPersons} pers.</span>
               </div>
             </div>
 
