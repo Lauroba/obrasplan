@@ -312,7 +312,7 @@ export default function PlanificacionPage() {
     }); return r;
   }, [asignaciones]);
 
-  // Sort obras: assigned this week first (alpha), then unassigned (alpha)
+  // Sort obras: 1) assigned this week (alpha), 2) "a planificar" (alpha), 3) rest (alpha)
   const obrasConAsignacion = new Set<string>();
   asignaciones.forEach((a) => {
     const inicio = String(a.fecha_inicio).substring(0, 10);
@@ -322,10 +322,11 @@ export default function PlanificacionPage() {
     }
   });
   const filteredObras = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
-  const sortedObras = [
-    ...filteredObras.filter((o) => obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-    ...filteredObras.filter((o) => !obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
-  ];
+  const alpha = (a: any, b: any) => a.nombre.localeCompare(b.nombre, "es");
+  const conAsig = filteredObras.filter((o) => obrasConAsignacion.has(o.id)).sort(alpha);
+  const aPlanificar = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
+  const resto = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
+  const sortedObras = [...conAsig, ...aPlanificar, ...resto];
   const obraIds = sortedObras.map((o) => o.id);
   // obraIds computed above with sortedObras
 
