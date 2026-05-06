@@ -312,24 +312,16 @@ export default function PlanificacionPage() {
     }); return r;
   }, [asignaciones]);
 
-  const sortedObras = useMemo(() => {
-    const filtered = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
-    // Build set of obra IDs that have ANY assignment in the current visible week
-    const obrasConAsignacion = new Set<string>();
-    for (const a of asignaciones) {
-      for (const ds of dateStrs) {
-        if (a.fecha_inicio <= ds && a.fecha_fin >= ds) {
-          obrasConAsignacion.add(a.obra_id);
-          break; // One match is enough
-        }
-      }
-    }
-    // Sort: assigned first (alpha), then unassigned (alpha)
-    const conAsig = filtered.filter((o) => obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-    const sinAsig = filtered.filter((o) => !obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-    return [...conAsig, ...sinAsig];
-  }, [obras, showArchived, estadoFilter, asignaciones, dateStrs]);
-  const obraIds = useMemo(() => sortedObras.map((o) => o.id), [sortedObras]);
+  // Sort obras: assigned this week first (alpha), then unassigned (alpha)
+  const obrasConAsignacion = new Set<string>();
+  asignaciones.forEach((a) => { dateStrs.forEach((ds) => { if (a.fecha_inicio <= ds && a.fecha_fin >= ds) obrasConAsignacion.add(a.obra_id); }); });
+  const filteredObras = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
+  const sortedObras = [
+    ...filteredObras.filter((o) => obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    ...filteredObras.filter((o) => !obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+  ];
+  const obraIds = sortedObras.map((o) => o.id);
+  // obraIds computed above with sortedObras
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
   const goToday = () => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); setStartDate(new Date(d.getFullYear(), d.getMonth(), d.getDate())); };
