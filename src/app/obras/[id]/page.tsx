@@ -54,7 +54,7 @@ export default function ObraDetallePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [obraRes, asigRes, tareasRes, tiposRes, estadosRes, rrhhRes, maqRes, vehRes, docsRes, partesRes] = await Promise.all([
-      supabase.from("obras").select("*, cliente:clientes(nombre, contacto, telefono), estado_custom:estados_obra(id,nombre,color)").eq("id", id).single(),
+      supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").eq("id", id).single(),
       supabase.from("asignaciones").select("*").eq("obra_id", id),
       supabase.from("tareas").select("*, tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre, foto_url)").eq("obra_id", id).order("created_at", { ascending: false }),
       supabase.from("tipo_tarea").select("*").eq("activo", true).order("nombre"),

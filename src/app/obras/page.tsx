@@ -21,7 +21,7 @@ export default function ObrasPage() {
     setLoading(true);
     const { data: rows } = await supabase
       .from("obras")
-      .select("*, cliente:clientes(nombre), estado_custom:estados_obra(id,nombre,color)")
+      .select("*, cliente:clientes(*), estado_custom:estados_obra(*)")
       .order("fecha_inicio", { ascending: false });
     setData((rows as Obra[]) || []);
     const { data: est } = await supabase.from("estados_obra").select("*").eq("activo", true).order("nombre");

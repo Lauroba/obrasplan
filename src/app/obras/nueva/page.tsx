@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
-import type { Cliente, EstadoObra, Obra } from "@/lib/types/database";
+import type { Cliente, EstadoObra } from "@/lib/types/database";
 import { Building2, Loader2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
@@ -23,94 +23,162 @@ function NuevaObraContent() {
   const supabase = createClient();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
+  const [tiposObra, setTiposObra] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
-  const [form, setForm] = useState({ nombre: "", cliente_id: "", ubicacion: "", estado_obra_id: "", observaciones: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] });
+  const [form, setForm] = useState({
+    nombre: "", cliente_id: "", estado_obra_id: "", tipo_obra_id: "",
+    direccion: "", localidad: "", provincia: "",
+    num_presupuesto: "", num_factura: "",
+    contacto_obra_nombre: "", contacto_obra_telefono: "", contacto_obra_email: "",
+    observaciones: "", color: COLORS[Math.floor(Math.random() * COLORS.length)]
+  });
 
   useEffect(() => {
     Promise.all([
       supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
-    ]).then(([c, e]) => {
+      supabase.from("tipos_obra").select("*").eq("activo", true).order("nombre").then(r => r).catch(() => ({ data: [] })),
+    ]).then(([c, e, t]) => {
       setClientes(c.data || []);
       setEstados(e.data || []);
+      setTiposObra(t.data || []);
       if (!editId) {
         const pendiente = (e.data || []).find((es: EstadoObra) => es.nombre.toLowerCase().includes("pendiente"));
         if (pendiente) setForm((f) => ({ ...f, estado_obra_id: pendiente.id }));
       }
     });
-
-    // Load obra data if editing
     if (editId) {
-      supabase.from("obras").select("*").eq("id", editId).single().then(({ data }) => {
-        if (data) {
-          setForm({
-            nombre: data.nombre, cliente_id: data.cliente_id || "", ubicacion: data.ubicacion || "",
-            estado_obra_id: data.estado_obra_id || "", observaciones: data.observaciones || "",
-            color: data.color || COLORS[0],
-          });
-        }
+      supabase.from("obras").select("*, cliente:clientes(*)").eq("id", editId).single().then(({ data }) => {
+        if (data) setForm({
+          nombre: data.nombre, cliente_id: data.cliente_id || "", estado_obra_id: data.estado_obra_id || "",
+          tipo_obra_id: data.tipo_obra_id || "", direccion: data.direccion || "",
+          localidad: data.localidad || "", provincia: data.provincia || "",
+          num_presupuesto: data.num_presupuesto || "", num_factura: data.num_factura || "",
+          contacto_obra_nombre: data.contacto_obra_nombre || "", contacto_obra_telefono: data.contacto_obra_telefono || "",
+          contacto_obra_email: data.contacto_obra_email || "",
+          observaciones: data.observaciones || "", color: data.color || COLORS[0],
+        });
         setLoadingEdit(false);
       });
     }
   }, [editId]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.nombre) return;
-    setSaving(true);
-    const payload = {
-      nombre: form.nombre, cliente_id: form.cliente_id || null, ubicacion: form.ubicacion || null,
-      estado_obra_id: form.estado_obra_id || null, observaciones: form.observaciones || null, color: form.color,
-    };
+  // When client changes, copy contact info to contacto obra
+  const handleClienteChange = (clienteId: string) => {
+    const cliente = clientes.find((c) => c.id === clienteId);
+    setForm((f) => ({
+      ...f, cliente_id: clienteId,
+      contacto_obra_nombre: f.contacto_obra_nombre || cliente?.contacto || "",
+      contacto_obra_telefono: f.contacto_obra_telefono || cliente?.telefono || "",
+      contacto_obra_email: f.contacto_obra_email || (cliente as any)?.email || "",
+    }));
+  };
 
-    if (editId) {
-      await supabase.from("obras").update(payload).eq("id", editId);
-      router.push(`/obras/${editId}`);
-    } else {
-      const { data: obra } = await supabase.from("obras").insert({
-        ...payload, created_by: user?.id, estado: "planificada", orden_gantt: 9999,
-      }).select().single();
-      if (obra) router.push(`/obras/${obra.id}`);
-      else { alert("Error al crear obra"); setSaving(false); }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!form.nombre) return; setSaving(true);
+    try {
+      const payload: any = {
+        nombre: form.nombre, cliente_id: form.cliente_id || null,
+        ubicacion: form.direccion || null, estado_obra_id: form.estado_obra_id || null,
+        observaciones: form.observaciones || null, color: form.color,
+      };
+      // Add optional fields only if they have values (columns might not exist yet)
+      if (form.direccion) payload.direccion = form.direccion;
+      if (form.localidad) payload.localidad = form.localidad;
+      if (form.provincia) payload.provincia = form.provincia;
+      if (form.tipo_obra_id) payload.tipo_obra_id = form.tipo_obra_id;
+      if (form.num_presupuesto) payload.num_presupuesto = form.num_presupuesto;
+      if (form.num_factura) payload.num_factura = form.num_factura;
+      if (form.contacto_obra_nombre) payload.contacto_obra_nombre = form.contacto_obra_nombre;
+      if (form.contacto_obra_telefono) payload.contacto_obra_telefono = form.contacto_obra_telefono;
+      if (form.contacto_obra_email) payload.contacto_obra_email = form.contacto_obra_email;
+
+      if (editId) {
+        const { error } = await (supabase.from("obras") as any).update(payload).eq("id", editId);
+        if (error) throw error;
+        router.push(`/obras/${editId}`);
+      } else {
+        const { data: obra, error } = await (supabase.from("obras") as any)
+          .insert({ ...payload, created_by: user?.id, estado: "planificada", orden_gantt: 9999 })
+          .select().single();
+        if (error) throw error;
+        if (obra) router.push(`/obras/${obra.id}`);
+      }
+    } catch (err: any) {
+      alert("Error al guardar: " + (err?.message || err));
+      setSaving(false);
     }
   };
 
   const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
-
   if (loadingEdit) return <AppLayout><div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div></AppLayout>;
+
+  const selectedCliente = clientes.find((c) => c.id === form.cliente_id);
 
   return (
     <AppLayout><div className="max-w-3xl mx-auto animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
         <Link href={editId ? `/obras/${editId}` : "/obras"} className="p-2 rounded-lg text-surface-400 hover:bg-surface-100"><ArrowLeft className="w-5 h-5" /></Link>
         <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center"><Building2 className="w-5 h-5 text-brand-600" /></div>
-        <div><h1 className="text-xl font-display font-bold text-surface-900">{editId ? "Editar Obra" : "Nueva Obra"}</h1></div>
+        <h1 className="text-xl font-display font-bold text-surface-900">{editId ? "Editar Obra" : "Nueva Obra"}</h1>
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="card p-6">
-          <h2 className="text-sm font-semibold text-surface-900 mb-4">Datos generales</h2>
-          <div className="space-y-4">
-            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre de la obra *</label><input type="text" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Reforma Local Comercial" className={ic} /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Cliente</label><select value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })} className={ic}><option value="">Sin cliente</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
-              <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Estado</label><select value={form.estado_obra_id} onChange={(e) => setForm({ ...form, estado_obra_id: e.target.value })} className={ic}><option value="">Sin estado</option>{estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></div>
-            </div>
-            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Ubicación</label><input type="text" value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} placeholder="Dirección de la obra" className={ic} /></div>
-            <div>
-              <label className="block text-sm font-medium text-surface-700 mb-1.5">Color en el Gantt</label>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {COLORS.map((c) => (<button key={c} type="button" onClick={() => setForm({ ...form, color: c })}
-                  className="w-7 h-7 rounded-full border-2 transition-all hover:scale-110"
-                  style={{ backgroundColor: c, borderColor: form.color === c ? c : "transparent", transform: form.color === c ? "scale(1.25)" : "", boxShadow: form.color === c ? `0 0 0 3px ${c}30` : "none" }} />))}
-              </div>
-            </div>
-            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Observaciones</label><textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3} placeholder="Notas adicionales..." className={ic + " resize-none"} /></div>
+        {/* General */}
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Datos generales</h2>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre *</label><input type="text" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Reforma Local" className={ic} /></div>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Cliente</label><select value={form.cliente_id} onChange={(e) => handleClienteChange(e.target.value)} className={ic}><option value="">Sin cliente</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo de obra</label><select value={form.tipo_obra_id} onChange={(e) => setForm({ ...form, tipo_obra_id: e.target.value })} className={ic}><option value="">Sin tipo</option>{tiposObra.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Estado</label><select value={form.estado_obra_id} onChange={(e) => setForm({ ...form, estado_obra_id: e.target.value })} className={ic}><option value="">Sin estado</option>{estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nº Presupuesto</label><input type="text" value={form.num_presupuesto} onChange={(e) => setForm({ ...form, num_presupuesto: e.target.value })} placeholder="P-2026-001" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nº Factura</label><input type="text" value={form.num_factura} onChange={(e) => setForm({ ...form, num_factura: e.target.value })} placeholder="F-2026-001" className={ic} /></div>
           </div>
         </div>
+
+        {/* Dirección */}
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Dirección de la obra</h2>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Dirección</label><input type="text" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} placeholder="Calle, número..." className={ic} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Localidad</label><input type="text" value={form.localidad} onChange={(e) => setForm({ ...form, localidad: e.target.value })} placeholder="Ciudad" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Provincia</label><input type="text" value={form.provincia} onChange={(e) => setForm({ ...form, provincia: e.target.value })} placeholder="Provincia" className={ic} /></div>
+          </div>
+        </div>
+
+        {/* Cliente info (read-only) + Contacto obra (editable) */}
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Contacto</h2>
+          {selectedCliente && (
+            <div className="p-3 bg-surface-50 rounded-lg border border-surface-100">
+              <p className="text-[10px] font-semibold text-surface-400 uppercase mb-1">Datos del cliente (del maestro)</p>
+              <p className="text-sm text-surface-700">{selectedCliente.nombre} · {selectedCliente.telefono || "—"} · {(selectedCliente as any).email || "—"}</p>
+            </div>
+          )}
+          <p className="text-xs text-surface-400">El contacto de obra se copia del cliente pero se puede cambiar:</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Contacto obra</label><input type="text" value={form.contacto_obra_nombre} onChange={(e) => setForm({ ...form, contacto_obra_nombre: e.target.value })} placeholder="Nombre" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Teléfono</label><input type="tel" value={form.contacto_obra_telefono} onChange={(e) => setForm({ ...form, contacto_obra_telefono: e.target.value })} placeholder="Teléfono" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Email</label><input type="email" value={form.contacto_obra_email} onChange={(e) => setForm({ ...form, contacto_obra_email: e.target.value })} placeholder="email@..." className={ic} /></div>
+          </div>
+        </div>
+
+        {/* Color + notas */}
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Apariencia</h2>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Color en el Gantt</label>
+            <div className="flex items-center gap-1.5 flex-wrap">{COLORS.map((c) => (<button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className="w-7 h-7 rounded-full border-2 transition-all hover:scale-110" style={{ backgroundColor: c, borderColor: form.color === c ? c : "transparent", transform: form.color === c ? "scale(1.25)" : "", boxShadow: form.color === c ? `0 0 0 3px ${c}30` : "none" }} />))}</div>
+          </div>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Observaciones</label><textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3} placeholder="Notas..." className={ic + " resize-none"} /></div>
+        </div>
+
         <div className="flex items-center justify-end gap-3">
           <Link href={editId ? `/obras/${editId}` : "/obras"} className="px-4 py-2.5 text-sm text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">Cancelar</Link>
-          <button type="submit" disabled={saving || !form.nombre} className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{editId ? "Guardar cambios" : "Crear obra"}</button>
+          <button type="submit" disabled={saving || !form.nombre} className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{editId ? "Guardar" : "Crear obra"}</button>
         </div>
       </form>
     </div></AppLayout>

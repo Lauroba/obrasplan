@@ -241,7 +241,7 @@ export default function PlanificacionPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [oR, aR, hR, mR, vR, tR, eR] = await Promise.all([
-      supabase.from("obras").select("*, cliente:clientes(nombre), estado_custom:estados_obra(id,nombre,color)").order("orden_gantt"),
+      supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").order("orden_gantt"),
       supabase.from("asignaciones").select("*"),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("orden_planificacion" as any, { ascending: true }).order("nombre"),
       supabase.from("maquinaria").select("*").eq("activo", true).order("nombre"),

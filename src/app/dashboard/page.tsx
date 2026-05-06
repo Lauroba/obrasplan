@@ -44,8 +44,8 @@ export default function DashboardPage() {
     const fetchAll = async () => {
       const supabase = createClient();
       const [tareasR, obrasR, partesR, asigR, rrhhR, maqR, vehR] = await Promise.all([
-        supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
-        supabase.from("obras").select("*, estado_custom:estados_obra(nombre, color)").eq("archivada", false).order("nombre"),
+        supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
+        supabase.from("obras").select("*, estado_custom:estados_obra(*)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
         supabase.from("asignaciones").select("*"),
         supabase.from("recursos_humanos").select("id, nombre").eq("activo", true),
@@ -188,6 +188,7 @@ export default function DashboardPage() {
                       <p className="text-xs font-medium text-surface-900 truncate">{t.descripcion}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-surface-400">{t.obra?.nombre}</span>
+                        {t.recurso_asignado?.nombre && <span className="text-[10px] text-violet-500">→ {t.recurso_asignado.nombre}</span>}
                         <span className={cn("badge text-[9px]", prioColors[t.prioridad])}>{t.prioridad}</span>
                         {t.fecha_limite && <span className={cn("text-[9px] px-1 py-0.5 rounded", getDateColor(t.fecha_limite))}>{new Date(t.fecha_limite).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</span>}
                       </div>
