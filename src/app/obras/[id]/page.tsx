@@ -227,20 +227,60 @@ export default function ObraDetallePage() {
         {/* RECURSOS */}
         {tab === "recursos" && (
           <div className="space-y-4">
-            {[{ title: "Personas", icon: Users, items: humanos, getLabel: (a: Asignacion) => rrhh.find((r) => r.id === a.recurso_id)?.nombre || "?" },
-              { title: "Maquinaria", icon: Wrench, items: maquinas, getLabel: (a: Asignacion) => maq[a.recurso_id]?.nombre || "?" },
-              { title: "Vehículos", icon: Truck, items: vehiculos, getLabel: (a: Asignacion) => veh[a.recurso_id]?.nombre || "?" },
-            ].map((g) => (
-              <div key={g.title} className="card p-6">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-surface-900 mb-3"><g.icon className="w-4 h-4 text-surface-400" />{g.title} ({g.items.length})</h3>
-                {g.items.length === 0 ? <p className="text-sm text-surface-400">Sin asignaciones</p> : (
-                  <div className="space-y-2">{Array.from(new Set(g.items.map((a) => a.recurso_id))).map((rid) => {
-                    const days = g.items.filter((a) => a.recurso_id === rid).length;
-                    return <div key={rid} className="flex items-center justify-between px-3 py-2 bg-surface-50 rounded-lg"><span className="text-sm text-surface-700">{g.getLabel(g.items.find((a) => a.recurso_id === rid)!)}</span><span className="text-xs text-surface-400">{days} día{days !== 1 ? "s" : ""}</span></div>;
-                  })}</div>
-                )}
-              </div>
-            ))}
+            {[{ title: "Personas", icon: Users, tipo: "humano" as const, items: humanos, getName: (rid: string) => rrhh.find((r) => r.id === rid)?.nombre || "?" },
+              { title: "Maquinaria", icon: Wrench, tipo: "maquinaria" as const, items: maquinas, getName: (rid: string) => maq[rid]?.nombre || "?" },
+              { title: "Vehículos", icon: Truck, tipo: "vehiculo" as const, items: vehiculos, getName: (rid: string) => veh[rid]?.nombre || "?" },
+            ].map((g) => {
+              // Group by resource, collect date ranges
+              const grouped: Record<string, { nombre: string; ranges: { inicio: string; fin: string }[] }> = {};
+              g.items.forEach((a) => {
+                if (!grouped[a.recurso_id]) grouped[a.recurso_id] = { nombre: g.getName(a.recurso_id), ranges: [] };
+                grouped[a.recurso_id].ranges.push({ inicio: a.fecha_inicio, fin: a.fecha_fin });
+              });
+              // Sort ranges and merge
+              Object.values(grouped).forEach((v) => v.ranges.sort((a, b) => a.inicio.localeCompare(b.inicio)));
+              const sortedResources = Object.entries(grouped).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, "es"));
+
+              return (
+                <div key={g.title} className="card p-6">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-surface-900 mb-3"><g.icon className="w-4 h-4 text-surface-400" />{g.title} ({sortedResources.length})</h3>
+                  {sortedResources.length === 0 ? <p className="text-sm text-surface-400">Sin asignaciones</p> : (
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-surface-200">
+                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2 w-[200px]">Recurso</th>
+                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Fechas</th>
+                        <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-2 w-[80px]">Días</th>
+                      </tr></thead>
+                      <tbody>{sortedResources.map(([rid, v]) => {
+                        const totalDays = v.ranges.reduce((sum, r) => {
+                          const s = new Date(r.inicio + "T12:00:00"); const e = new Date(r.fin + "T12:00:00");
+                          return sum + Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+                        }, 0);
+                        return (
+                          <tr key={rid} className="border-b border-surface-50 hover:bg-surface-50/50">
+                            <td className="py-2 px-2 font-medium text-surface-900">{v.nombre}</td>
+                            <td className="py-2 px-2">
+                              <div className="flex flex-wrap gap-1">
+                                {v.ranges.map((r, i) => {
+                                  const s = new Date(r.inicio + "T12:00:00");
+                                  const e = new Date(r.fin + "T12:00:00");
+                                  const same = r.inicio === r.fin;
+                                  const label = same
+                                    ? s.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })
+                                    : `${s.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} → ${e.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
+                                  return <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-brand-50 text-brand-700">{label}</span>;
+                                })}
+                              </div>
+                            </td>
+                            <td className="py-2 px-2 text-right text-surface-600 font-medium">{totalDays}</td>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

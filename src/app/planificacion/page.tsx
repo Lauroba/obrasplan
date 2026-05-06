@@ -312,7 +312,23 @@ export default function PlanificacionPage() {
     }); return r;
   }, [asignaciones]);
 
-  const sortedObras = useMemo(() => obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter)).sort((a, b) => (a.orden_gantt || 0) - (b.orden_gantt || 0)), [obras, showArchived, estadoFilter]);
+  const sortedObras = useMemo(() => {
+    const filtered = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
+    // Check which obras have assignments this week
+    const obrasWithAssignments = new Set<string>();
+    asignaciones.forEach((a) => {
+      dateStrs.forEach((ds) => {
+        if (a.fecha_inicio <= ds && a.fecha_fin >= ds) obrasWithAssignments.add(a.obra_id);
+      });
+    });
+    return filtered.sort((a, b) => {
+      const aHas = obrasWithAssignments.has(a.id);
+      const bHas = obrasWithAssignments.has(b.id);
+      if (aHas && !bHas) return -1;
+      if (!aHas && bHas) return 1;
+      return a.nombre.localeCompare(b.nombre, "es");
+    });
+  }, [obras, showArchived, estadoFilter, asignaciones, dateStrs]);
   const obraIds = useMemo(() => sortedObras.map((o) => o.id), [sortedObras]);
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
@@ -429,7 +445,7 @@ export default function PlanificacionPage() {
     if (resourceFilter === "all" || resourceFilter === "maquinaria") maqList.forEach((r) => all.push({ dragId: `res-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "maquinaria" && a.recurso_id === r.id).length, iconType: "maquinaria" }));
     if (resourceFilter === "all" || resourceFilter === "vehiculo") vehList.forEach((r) => all.push({ dragId: `res-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === r.id).length, iconType: "vehiculo" }));
     if (resourceFilter === "all" || resourceFilter === "material") matList.forEach((r) => all.push({ dragId: `res-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "material" && a.recurso_id === r.id).length, iconType: "material" }));
-    return all;
+    return all.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [resourceFilter, rrhh, maqList, vehList, matList, asignaciones]);
 
   // Panel items for Vista RRHH
@@ -439,7 +455,7 @@ export default function PlanificacionPage() {
     if (panelFilter === "all" || panelFilter === "maquinaria") maqList.forEach((r) => all.push({ dragId: `panel-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: 0, iconType: "maquinaria" }));
     if (panelFilter === "all" || panelFilter === "vehiculo") vehList.forEach((r) => all.push({ dragId: `panel-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: 0, iconType: "vehiculo" }));
     if (panelFilter === "all" || panelFilter === "material") matList.forEach((r) => all.push({ dragId: `panel-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: 0, iconType: "material" }));
-    return all;
+    return all.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [panelFilter, sortedObras, maqList, vehList, matList, asignaciones]);
 
   const dayLabel = (d: Date, i: number) => {
@@ -529,7 +545,15 @@ export default function PlanificacionPage() {
 
                   {/* ===== VISTA RRHH ===== */}
                   {planView === "rrhh" && (() => {
-                    const sortedRrhh = [...rrhh].sort((a, b) => ((a as any).orden_planificacion || 0) - ((b as any).orden_planificacion || 0));
+                    const rrhhWithAssignments = new Set<string>();
+                    asignaciones.forEach((a) => { if (a.recurso_tipo === "humano") dateStrs.forEach((ds) => { if (a.fecha_inicio <= ds && a.fecha_fin >= ds) rrhhWithAssignments.add(a.recurso_id); }); });
+                    const sortedRrhh = [...rrhh].sort((a, b) => {
+                      const aHas = rrhhWithAssignments.has(a.id);
+                      const bHas = rrhhWithAssignments.has(b.id);
+                      if (aHas && !bHas) return -1;
+                      if (!aHas && bHas) return 1;
+                      return a.nombre.localeCompare(b.nombre, "es");
+                    });
                     const rrhhIds = sortedRrhh.map((p) => `prow-${p.id}`);
                     return (
                       <SortableContext items={rrhhIds} strategy={verticalListSortingStrategy}>
