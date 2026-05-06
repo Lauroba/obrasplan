@@ -314,7 +314,13 @@ export default function PlanificacionPage() {
 
   // Sort obras: assigned this week first (alpha), then unassigned (alpha)
   const obrasConAsignacion = new Set<string>();
-  asignaciones.forEach((a) => { dateStrs.forEach((ds) => { if (a.fecha_inicio <= ds && a.fecha_fin >= ds) obrasConAsignacion.add(a.obra_id); }); });
+  asignaciones.forEach((a) => {
+    const inicio = String(a.fecha_inicio).substring(0, 10);
+    const fin = String(a.fecha_fin).substring(0, 10);
+    for (const ds of dateStrs) {
+      if (inicio <= ds && fin >= ds) { obrasConAsignacion.add(a.obra_id); break; }
+    }
+  });
   const filteredObras = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
   const sortedObras = [
     ...filteredObras.filter((o) => obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
@@ -501,6 +507,7 @@ export default function PlanificacionPage() {
                 <button key={v} onClick={() => setViewMode(v)} className={cn("px-2 py-0.5 text-[10px] font-medium rounded transition-colors", viewMode === v ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>
                   {v === "week" ? "Semana" : v === "month" ? "Mes" : "Año"}</button>))}</div>
               <button onClick={() => setPanelOpen(!panelOpen)} className={cn("px-2 py-1 text-[10px] font-medium rounded-lg", panelOpen ? "bg-brand-50 text-brand-600" : "bg-surface-100 text-surface-500")}>{panelOpen ? "Ocultar" : "Panel"}</button>
+              <span className="text-[9px] text-surface-400 ml-2">({obrasConAsignacion.size} asig. / {filteredObras.length} total)</span>
             </div>
           </div>
 
