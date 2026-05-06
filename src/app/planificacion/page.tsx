@@ -314,20 +314,20 @@ export default function PlanificacionPage() {
 
   const sortedObras = useMemo(() => {
     const filtered = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
-    // Check which obras have assignments this week
-    const obrasWithAssignments = new Set<string>();
-    asignaciones.forEach((a) => {
-      dateStrs.forEach((ds) => {
-        if (a.fecha_inicio <= ds && a.fecha_fin >= ds) obrasWithAssignments.add(a.obra_id);
-      });
-    });
-    return filtered.sort((a, b) => {
-      const aHas = obrasWithAssignments.has(a.id);
-      const bHas = obrasWithAssignments.has(b.id);
-      if (aHas && !bHas) return -1;
-      if (!aHas && bHas) return 1;
-      return a.nombre.localeCompare(b.nombre, "es");
-    });
+    // Build set of obra IDs that have ANY assignment in the current visible week
+    const obrasConAsignacion = new Set<string>();
+    for (const a of asignaciones) {
+      for (const ds of dateStrs) {
+        if (a.fecha_inicio <= ds && a.fecha_fin >= ds) {
+          obrasConAsignacion.add(a.obra_id);
+          break; // One match is enough
+        }
+      }
+    }
+    // Sort: assigned first (alpha), then unassigned (alpha)
+    const conAsig = filtered.filter((o) => obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    const sinAsig = filtered.filter((o) => !obrasConAsignacion.has(o.id)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    return [...conAsig, ...sinAsig];
   }, [obras, showArchived, estadoFilter, asignaciones, dateStrs]);
   const obraIds = useMemo(() => sortedObras.map((o) => o.id), [sortedObras]);
 
