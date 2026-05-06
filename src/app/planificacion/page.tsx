@@ -531,7 +531,7 @@ export default function PlanificacionPage() {
 
                   {/* ===== VISTA OBRAS ===== */}
                   {planView === "obras" && (
-                    <SortableContext items={obraIds} strategy={verticalListSortingStrategy}>
+                    <SortableContext key={obraIds.join(",")} items={obraIds} strategy={verticalListSortingStrategy}>
                       {sortedObras.map((obra) => (
                         <ObraRow key={obra.id} obra={obra} dateStrs={dateStrs} days={days}
                           assignGrid={assignGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
@@ -556,7 +556,7 @@ export default function PlanificacionPage() {
                     });
                     const rrhhIds = sortedRrhh.map((p) => `prow-${p.id}`);
                     return (
-                      <SortableContext items={rrhhIds} strategy={verticalListSortingStrategy}>
+                      <SortableContext key={rrhhIds.join(",")} items={rrhhIds} strategy={verticalListSortingStrategy}>
                         {sortedRrhh.map((persona) => (
                           <SortablePersonRow key={persona.id} persona={persona} dateStrs={dateStrs} days={days}
                             assignGrid={assignGrid} obras={obras} onRemove={handleRemove} dw={dw}
