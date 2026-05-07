@@ -5,7 +5,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
 import type { Cliente, EstadoObra } from "@/lib/types/database";
-import { Building2, Loader2, ArrowLeft } from "lucide-react";
+import { Building2, Loader2, ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 
 const COLORS = [
@@ -24,10 +24,11 @@ function NuevaObraContent() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [tiposObra, setTiposObra] = useState<any[]>([]);
+  const [tiposSeleccionados, setTiposSeleccionados] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
   const [form, setForm] = useState({
-    nombre: "", cliente_id: "", estado_obra_id: "", tipo_obra_id: "",
+    nombre: "", cliente_id: "", estado_obra_id: "",
     direccion: "", localidad: "", provincia: "",
     num_presupuesto: "", num_factura: "",
     contacto_obra_nombre: "", contacto_obra_telefono: "", contacto_obra_email: "",
@@ -49,16 +50,20 @@ function NuevaObraContent() {
       }
     });
     if (editId) {
-      supabase.from("obras").select("*, cliente:clientes(*)").eq("id", editId).single().then(({ data }) => {
-        if (data) setForm({
-          nombre: data.nombre, cliente_id: data.cliente_id || "", estado_obra_id: data.estado_obra_id || "",
-          tipo_obra_id: data.tipo_obra_id || "", direccion: data.direccion || "",
-          localidad: data.localidad || "", provincia: data.provincia || "",
-          num_presupuesto: data.num_presupuesto || "", num_factura: data.num_factura || "",
-          contacto_obra_nombre: data.contacto_obra_nombre || "", contacto_obra_telefono: data.contacto_obra_telefono || "",
-          contacto_obra_email: data.contacto_obra_email || "",
-          observaciones: data.observaciones || "", color: data.color || COLORS[0],
-        });
+      supabase.from("obras").select("*, cliente:clientes(*)").eq("id", editId).single().then(async ({ data }) => {
+        if (data) {
+          setForm({
+            nombre: data.nombre, cliente_id: data.cliente_id || "", estado_obra_id: data.estado_obra_id || "",
+            direccion: data.direccion || "", localidad: data.localidad || "", provincia: data.provincia || "",
+            num_presupuesto: data.num_presupuesto || "", num_factura: data.num_factura || "",
+            contacto_obra_nombre: data.contacto_obra_nombre || "", contacto_obra_telefono: data.contacto_obra_telefono || "",
+            contacto_obra_email: data.contacto_obra_email || "",
+            observaciones: data.observaciones || "", color: data.color || COLORS[0],
+          });
+          // Load tipos from junction table
+          const { data: tipos } = await supabase.from("obra_tipos_obra").select("tipo_obra_id").eq("obra_id", editId);
+          if (tipos) setTiposSeleccionados(tipos.map((t: any) => t.tipo_obra_id));
+        }
         setLoadingEdit(false);
       });
     }
@@ -83,28 +88,38 @@ function NuevaObraContent() {
         ubicacion: form.direccion || null, estado_obra_id: form.estado_obra_id || null,
         observaciones: form.observaciones || null, color: form.color,
       };
-      // Add optional fields only if they have values (columns might not exist yet)
       if (form.direccion) payload.direccion = form.direccion;
       if (form.localidad) payload.localidad = form.localidad;
       if (form.provincia) payload.provincia = form.provincia;
-      if (form.tipo_obra_id) payload.tipo_obra_id = form.tipo_obra_id;
       if (form.num_presupuesto) payload.num_presupuesto = form.num_presupuesto;
       if (form.num_factura) payload.num_factura = form.num_factura;
       if (form.contacto_obra_nombre) payload.contacto_obra_nombre = form.contacto_obra_nombre;
       if (form.contacto_obra_telefono) payload.contacto_obra_telefono = form.contacto_obra_telefono;
       if (form.contacto_obra_email) payload.contacto_obra_email = form.contacto_obra_email;
 
+      let obraId = editId;
       if (editId) {
         const { error } = await (supabase.from("obras") as any).update(payload).eq("id", editId);
         if (error) throw error;
-        router.push(`/obras/${editId}`);
       } else {
         const { data: obra, error } = await (supabase.from("obras") as any)
           .insert({ ...payload, created_by: user?.id, estado: "planificada", orden_gantt: 9999 })
           .select().single();
         if (error) throw error;
-        if (obra) router.push(`/obras/${obra.id}`);
+        obraId = obra.id;
       }
+
+      // Save tipos to junction table
+      if (obraId) {
+        await (supabase.from("obra_tipos_obra") as any).delete().eq("obra_id", obraId);
+        if (tiposSeleccionados.length > 0) {
+          await (supabase.from("obra_tipos_obra") as any).insert(
+            tiposSeleccionados.map((tipoId) => ({ obra_id: obraId, tipo_obra_id: tipoId }))
+          );
+        }
+      }
+
+      router.push(`/obras/${obraId}`);
     } catch (err: any) {
       alert("Error al guardar: " + (err?.message || err));
       setSaving(false);
@@ -128,10 +143,25 @@ function NuevaObraContent() {
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-surface-900">Datos generales</h2>
           <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre *</label><input type="text" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Reforma Local" className={ic} /></div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Cliente</label><select value={form.cliente_id} onChange={(e) => handleClienteChange(e.target.value)} className={ic}><option value="">Sin cliente</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
-            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo de obra</label><select value={form.tipo_obra_id} onChange={(e) => setForm({ ...form, tipo_obra_id: e.target.value })} className={ic}><option value="">Sin tipo</option>{tiposObra.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></div>
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Estado</label><select value={form.estado_obra_id} onChange={(e) => setForm({ ...form, estado_obra_id: e.target.value })} className={ic}><option value="">Sin estado</option>{estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Tipos de obra</label>
+            <div className="flex flex-wrap gap-1.5">
+              {tiposObra.map((t) => {
+                const selected = tiposSeleccionados.includes(t.id);
+                return (
+                  <button key={t.id} type="button" onClick={() => setTiposSeleccionados(selected ? tiposSeleccionados.filter((x: string) => x !== t.id) : [...tiposSeleccionados, t.id])}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${selected ? "bg-brand-500 text-white border-brand-500" : "bg-white text-surface-600 border-surface-200 hover:border-brand-300"}`}>
+                    {t.nombre}
+                    {selected && <X className="w-3 h-3" />}
+                  </button>
+                );
+              })}
+              {tiposObra.length === 0 && <p className="text-xs text-surface-400">Créalos en Maestros → Tipos de Obra</p>}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nº Presupuesto</label><input type="text" value={form.num_presupuesto} onChange={(e) => setForm({ ...form, num_presupuesto: e.target.value })} placeholder="P-2026-001" className={ic} /></div>

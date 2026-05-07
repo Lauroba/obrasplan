@@ -37,6 +37,7 @@ export default function ObraDetallePage() {
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [partes, setPartes] = useState<any[]>([]);
   const [tiposObra, setTiposObra] = useState<any[]>([]);
+  const [obraTipos, setObraTipos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("general");
   const [observaciones, setObservaciones] = useState("");
@@ -54,7 +55,7 @@ export default function ObraDetallePage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [obraRes, asigRes, tareasRes, tiposRes, estadosRes, rrhhRes, maqRes, vehRes, docsRes, partesRes, tiposObraRes] = await Promise.all([
+    const [obraRes, asigRes, tareasRes, tiposRes, estadosRes, rrhhRes, maqRes, vehRes, docsRes, partesRes, tiposObraRes, obraTiposRes] = await Promise.all([
       supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").eq("id", id).single(),
       supabase.from("asignaciones").select("*").eq("obra_id", id),
       supabase.from("tareas").select("*, tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre, foto_url)").eq("obra_id", id).order("created_at", { ascending: false }),
@@ -66,6 +67,7 @@ export default function ObraDetallePage() {
       supabase.from("documentos").select("*").eq("obra_id", id).is("parte_id", null).order("created_at", { ascending: false }),
       supabase.from("partes_diarios").select("*, creator:users!partes_diarios_created_by_fkey(nombre)").eq("obra_id", id).order("fecha", { ascending: false }),
       supabase.from("tipos_obra").select("*").eq("activo", true).order("nombre"),
+      supabase.from("obra_tipos_obra").select("tipo_obra_id").eq("obra_id", id),
     ]);
     const obraData = obraRes.data as Obra | null;
     setObra(obraData); setObservaciones(obraData?.observaciones || ""); setObsChanged(false);
@@ -73,6 +75,7 @@ export default function ObraDetallePage() {
     setTiposTarea(tiposRes.data || []); setEstados(estadosRes.data || []);
     setRrhh(rrhhRes.data || []); setDocumentos((docsRes.data as Documento[]) || []);
     setPartes(partesRes.data || []); setTiposObra(tiposObraRes.data || []);
+    setObraTipos((obraTiposRes.data || []).map((t: any) => t.tipo_obra_id));
     const maqMap: Record<string, any> = {}; (maqRes.data || []).forEach((r: any) => maqMap[r.id] = r); setMaq(maqMap);
     const vehMap: Record<string, any> = {}; (vehRes.data || []).forEach((r: any) => vehMap[r.id] = r); setVeh(vehMap);
     setLoading(false);
@@ -120,7 +123,7 @@ export default function ObraDetallePage() {
   const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
   const prioColors: Record<string, string> = { alta: "bg-red-100 text-red-700", media: "bg-amber-100 text-amber-700", baja: "bg-blue-100 text-blue-700" };
   const estadoBadgeParte: Record<string, { label: string; class: string }> = { pendiente: { label: "Pendiente", class: "bg-amber-100 text-amber-700" }, firmado: { label: "Firmado", class: "bg-emerald-100 text-emerald-700" }, borrador: { label: "Borrador", class: "bg-surface-100 text-surface-600" } };
-  const tipoObra = tiposObra.find((t: any) => t.id === (obra as any).tipo_obra_id);
+  const obraTipoNames = obraTipos.map((tid) => tiposObra.find((t: any) => t.id === tid)?.nombre).filter(Boolean);
 
   return (
     <AppLayout>
@@ -182,7 +185,7 @@ export default function ObraDetallePage() {
               <h3 className="text-sm font-semibold text-surface-900 mb-4">Datos generales</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Cliente</p><p className="text-sm text-surface-900 mt-1">{(obra as any).cliente?.nombre || "—"}</p></div>
-                <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Tipo de obra</p><p className="text-sm text-surface-900 mt-1">{tipoObra?.nombre || "—"}</p></div>
+                <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Tipos de obra</p><div className="flex flex-wrap gap-1 mt-1.5">{obraTipoNames.length > 0 ? obraTipoNames.map((n, i) => <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200">{n}</span>) : <span className="text-sm text-surface-400">—</span>}</div></div>
                 <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Estado</p><div className="mt-1">{(obra as any).estado_custom ? <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium text-white" style={{ backgroundColor: (obra as any).estado_custom.color }}>{(obra as any).estado_custom.nombre}</span> : <span className="text-sm text-surface-400">Sin estado</span>}</div></div>
                 <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Nº Presupuesto</p><p className="text-sm text-surface-900 mt-1">{(obra as any).num_presupuesto || "—"}</p></div>
                 <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Nº Factura</p><p className="text-sm text-surface-900 mt-1">{(obra as any).num_factura || "—"}</p></div>
