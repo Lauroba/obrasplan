@@ -322,7 +322,15 @@ export default function ObraDetallePage() {
           <div className="card p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-semibold text-surface-900">Partes diarios</h3>
-              <Link href={`/partes/nuevo?obra=${id}`} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600"><Plus className="w-3.5 h-3.5" />Nuevo parte</Link>
+              <button onClick={async () => {
+                const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                const { data: p } = await (supabase.from("partes_diarios") as any).insert({
+                  fecha: toDS(new Date()), created_by: user?.id, estado: "pendiente", obra_id: id,
+                  direccion: obra?.direccion || null, localidad: obra?.localidad || null, provincia: obra?.provincia || null,
+                  responsable_empresa: user?.nombre || "",
+                }).select().single();
+                if (p) router.push(`/partes/${p.id}`);
+              }} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600"><Plus className="w-3.5 h-3.5" />Nuevo parte</button>
             </div>
             {partes.length === 0 ? <p className="text-sm text-surface-500 text-center py-8">Sin partes</p> : (
               <div className="space-y-2">{partes.map((p) => {

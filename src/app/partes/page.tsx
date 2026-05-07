@@ -7,17 +7,40 @@ import type { Obra, RecursoHumano } from "@/lib/types/database";
 import { ClipboardList, Plus, Loader2, CheckCircle2, Clock, FileSignature, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/hooks/useAuth";
 
 export default function PartesPage() {
   const supabase = createClient();
+  const router = useRouter();
+  const { user } = useAuthStore();
   const [partes, setPartes] = useState<any[]>([]);
   const [obras, setObras] = useState<Obra[]>([]);
   const [personas, setPersonas] = useState<RecursoHumano[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [filterEstado, setFilterEstado] = useState("");
   const [filterObra, setFilterObra] = useState("");
   const [filterFecha, setFilterFecha] = useState("");
   const [filterPersona, setFilterPersona] = useState("");
+
+  const createDraft = async (obraId?: string) => {
+    setCreating(true);
+    const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const { data: parte, error } = await (supabase.from("partes_diarios") as any).insert({
+      fecha: toDS(new Date()),
+      created_by: user?.id,
+      estado: "pendiente",
+      obra_id: obraId || null,
+      responsable_empresa: user?.nombre || "",
+    }).select().single();
+    if (parte) {
+      router.push(`/partes/${parte.id}`);
+    } else {
+      alert("Error al crear parte: " + (error?.message || ""));
+      setCreating(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -63,9 +86,9 @@ export default function PartesPage() {
             <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center"><ClipboardList className="w-5 h-5 text-orange-600" /></div>
             <div><h1 className="text-xl font-display font-bold text-surface-900">Partes Diarios</h1><p className="text-sm text-surface-500">{filtered.length} partes</p></div>
           </div>
-          <Link href="/partes/nuevo" className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600">
-            <Plus className="w-4 h-4" /> Nuevo parte
-          </Link>
+          <button onClick={() => createDraft()} disabled={creating} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Nuevo parte
+          </button>
         </div>
 
         {/* Filters */}
@@ -106,7 +129,7 @@ export default function PartesPage() {
           <div className="card text-center py-16">
             <ClipboardList className="w-10 h-10 text-surface-300 mx-auto mb-3" />
             <p className="text-sm text-surface-500">{hasFilters ? "Sin resultados con estos filtros" : "No hay partes"}</p>
-            <Link href="/partes/nuevo" className="text-sm text-brand-600 hover:underline mt-1 inline-block">Crear primer parte</Link>
+            <button onClick={() => createDraft()} className="text-sm text-brand-600 hover:underline mt-1 inline-block">Crear primer parte</button>
           </div>
         ) : (
           <div className="space-y-2">
