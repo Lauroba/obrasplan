@@ -109,6 +109,15 @@ export interface Obra {
   fecha_fin: string | null;
   estado: ObraEstado;
   estado_obra_id: string | null;
+  tipo_obra_id: string | null;
+  num_presupuesto: string | null;
+  num_factura: string | null;
+  contacto_obra_nombre: string | null;
+  contacto_obra_telefono: string | null;
+  contacto_obra_email: string | null;
+  direccion: string | null;
+  localidad: string | null;
+  provincia: string | null;
   fase_actual: string | null;
   observaciones: string | null;
   color: string | null;

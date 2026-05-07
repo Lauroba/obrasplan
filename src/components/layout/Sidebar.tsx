@@ -28,6 +28,7 @@ const maestros = [
   { name: "Clientes", href: "/maestros/clientes", icon: Contact },
   { name: "Estados de Obra", href: "/maestros/estados-obra", icon: Tag },
   { name: "Tipos de Trabajo", href: "/maestros/tipos-trabajo", icon: Hammer },
+  { name: "Tipos de Obra", href: "/maestros/tipos-obra", icon: Building2 },
 ];
 
 const admin = [
