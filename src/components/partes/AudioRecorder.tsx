@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Mic, Square, Upload, Trash2, Play, Pause, Loader2, FileText } from "lucide-react";
+import { Mic, Square, Upload, Trash2, Play, Pause, Loader2, FileText, Languages } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { createClient } from "@/lib/supabase/client";
 
@@ -18,15 +18,13 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
   const [recording, setRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
   const [uploading, setUploading] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
+  const [transcribing, setTranscribing] = useState<string | null>(null); // audioId or "new"
   const [playingId, setPlayingId] = useState<string | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
-  const transcriptRef = useRef<string>("");
 
   useEffect(() => { return () => { if (timerRef.current) clearInterval(timerRef.current); }; }, []);
 
@@ -35,33 +33,18 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4" });
       chunks.current = [];
-      transcriptRef.current = "";
 
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.current.push(e.data); };
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks.current, { type: recorder.mimeType });
         const audioNum = audios.length + 1;
-        const fileName = `Audio_${audioNum}_${new Date().toISOString().slice(0, 10)}.webm`;
-        await uploadAudio(blob, fileName, recordTime);
-
-        // Stop speech recognition
-        if (recognitionRef.current) {
-          recognitionRef.current.stop();
-        }
-
-        // Process transcription
-        const transcript = transcriptRef.current.trim();
-        if (transcript) {
-          onTranscription(`Audio ${audioNum}`, transcript);
-        }
+        const ext = recorder.mimeType.includes("webm") ? "webm" : "mp4";
+        const fileName = `Audio_${audioNum}_${new Date().toISOString().slice(0, 10)}.${ext}`;
+        await uploadAndTranscribe(blob, fileName, recordTime, audioNum);
       };
 
       mediaRecorder.current = recorder;
-
-      // Start Web Speech API recognition
-      startSpeechRecognition();
-
       recorder.start();
       setRecording(true);
       setRecordTime(0);
@@ -71,67 +54,65 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
     }
   };
 
-  const startSpeechRecognition = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn("Web Speech API no soportada en este navegador");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "es-ES";
-    recognition.continuous = true;
-    recognition.interimResults = false;
-
-    recognition.onresult = (event: any) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          const text = event.results[i][0].transcript;
-          transcriptRef.current += (transcriptRef.current ? " " : "") + text;
-        }
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.warn("Speech recognition error:", event.error);
-    };
-
-    recognition.onend = () => {
-      // Restart if still recording
-      if (mediaRecorder.current && mediaRecorder.current.state === "recording") {
-        try { recognition.start(); } catch (e) { /* ignore */ }
-      }
-    };
-
-    try {
-      recognition.start();
-      recognitionRef.current = recognition;
-      setTranscribing(true);
-    } catch (e) {
-      console.warn("Could not start speech recognition");
-    }
-  };
-
   const stopRecording = () => {
     if (mediaRecorder.current && recording) {
       mediaRecorder.current.stop();
       setRecording(false);
-      setTranscribing(false);
       if (timerRef.current) clearInterval(timerRef.current);
     }
   };
 
-  const uploadAudio = async (blob: Blob, fileName: string, duration: number) => {
+  const uploadAndTranscribe = async (blob: Blob, fileName: string, duration: number, audioNum: number) => {
     setUploading(true);
     const path = `partes/${parteId}/${Date.now()}_${fileName}`;
     const { error } = await supabase.storage.from("audios").upload(path, blob);
     if (error) { alert("Error al subir audio: " + error.message); setUploading(false); return; }
-    await supabase.from("parte_audios").insert({
+    await (supabase.from("parte_audios") as any).insert({
       parte_id: parteId, nombre_archivo: fileName, storage_path: path,
       duracion: duration, tamano: blob.size,
     });
     setUploading(false);
     onChanged();
+
+    // Transcribe with Whisper
+    setTranscribing("new");
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob, fileName);
+      const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.text) {
+        onTranscription(`Audio ${audioNum}`, data.text);
+      }
+    } catch (err) {
+      console.error("Transcription error:", err);
+    }
+    setTranscribing(null);
+  };
+
+  const transcribeExisting = async (audio: typeof audios[0], idx: number) => {
+    setTranscribing(audio.id);
+    try {
+      // Download audio from Supabase
+      const { data: signedData } = await supabase.storage.from("audios").createSignedUrl(audio.storage_path, 120);
+      if (!signedData?.signedUrl) { setTranscribing(null); return; }
+
+      const audioRes = await fetch(signedData.signedUrl);
+      const audioBlob = await audioRes.blob();
+
+      const formData = new FormData();
+      formData.append("audio", audioBlob, audio.nombre_archivo || "audio.webm");
+      const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.text) {
+        onTranscription(`Audio ${idx + 1}`, data.text);
+      } else if (data.error) {
+        alert("Error transcripción: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+    setTranscribing(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,7 +122,7 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
     const path = `partes/${parteId}/${Date.now()}_${file.name}`;
     const { error } = await supabase.storage.from("audios").upload(path, file);
     if (error) { alert("Error: " + error.message); setUploading(false); return; }
-    await supabase.from("parte_audios").insert({
+    await (supabase.from("parte_audios") as any).insert({
       parte_id: parteId, nombre_archivo: file.name, storage_path: path, tamano: file.size,
     });
     setUploading(false);
@@ -151,7 +132,7 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
 
   const handleDelete = async (audio: typeof audios[0]) => {
     await supabase.storage.from("audios").remove([audio.storage_path]);
-    await supabase.from("parte_audios").delete().eq("id", audio.id);
+    await (supabase.from("parte_audios") as any).delete().eq("id", audio.id);
     onChanged();
   };
 
@@ -200,16 +181,16 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
         )}
       </div>
 
-      {transcribing && recording && (
+      {transcribing === "new" && (
         <div className="flex items-center gap-2 text-xs text-violet-600 bg-violet-50 px-3 py-2 rounded-lg">
-          <FileText className="w-3.5 h-3.5 animate-pulse" /> Transcribiendo audio en tiempo real...
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Transcribiendo audio con Whisper AI...
         </div>
       )}
 
       {uploading && <div className="flex items-center gap-2 text-sm text-surface-500"><Loader2 className="w-4 h-4 animate-spin" />Subiendo audio...</div>}
 
       {audios.length === 0 && !recording ? (
-        <p className="text-xs text-surface-400 py-3 text-center">Sin audios adjuntos. Graba un audio y se transcribirá automáticamente.</p>
+        <p className="text-xs text-surface-400 py-3 text-center">Sin audios. Graba y se transcribirá automáticamente con IA.</p>
       ) : (
         <div className="space-y-1.5">
           {audios.map((a, idx) => (
@@ -224,11 +205,20 @@ export default function AudioRecorder({ parteId, audios, onChanged, onTranscript
                   {a.duracion ? formatTime(a.duracion) : ""} · {new Date(a.created_at).toLocaleDateString("es-ES")}
                 </p>
               </div>
-              {!disabled && (
-                <button type="button" onClick={() => handleDelete(a)} className="p-1 rounded text-surface-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
-                  <Trash2 className="w-3.5 h-3.5" />
+              <div className="flex items-center gap-1">
+                {/* Transcribe button */}
+                <button type="button" onClick={() => transcribeExisting(a, idx)} disabled={transcribing === a.id}
+                  className={cn("flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg transition-colors",
+                    transcribing === a.id ? "bg-violet-100 text-violet-600" : "text-violet-600 bg-violet-50 hover:bg-violet-100 opacity-0 group-hover:opacity-100")}>
+                  {transcribing === a.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
+                  {transcribing === a.id ? "..." : "Transcribir"}
                 </button>
-              )}
+                {!disabled && (
+                  <button type="button" onClick={() => handleDelete(a)} className="p-1 rounded text-surface-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

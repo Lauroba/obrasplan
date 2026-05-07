@@ -33,16 +33,20 @@ function NuevoParteContent() {
   const [lineas, setLineas] = useState<LineaForm[]>([{ ...emptyLinea }]);
   const [firmaResponsable, setFirmaResponsable] = useState<string | null>(null);
   const [firmaCliente, setFirmaCliente] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [createdBy, setCreatedBy] = useState(user?.id || "");
 
   useEffect(() => {
     Promise.all([
       supabase.from("obras").select("*").eq("archivada", false).order("nombre"),
       supabase.from("tipos_trabajo").select("*").eq("activo", true).order("nombre"),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("nombre"),
-    ]).then(([o, t, r]) => {
+      supabase.from("users").select("id, nombre").order("nombre"),
+    ]).then(([o, t, r, u]) => {
       setObras(o.data || []);
       setTiposTrabajo(t.data || []);
       setRrhh(r.data || []);
+      setAllUsers(u.data || []);
       // Auto-fill from preset obra
       if (presetObra) {
         const obra = (o.data || []).find((ob: any) => ob.id === presetObra);
@@ -75,7 +79,7 @@ function NuevoParteContent() {
     if (!form.fecha) return; setSaving(true);
     const finalEstado = (firmaResponsable || firmaCliente) && estado === "firmado" ? "firmado" : "pendiente";
     const { data: parte, error } = await (supabase.from("partes_diarios") as any).insert({
-      obra_id: form.obra_id || null, fecha: form.fecha, created_by: user?.id,
+      obra_id: form.obra_id || null, fecha: form.fecha, created_by: createdBy || user?.id,
       jefe_obra: form.jefe_obra || null, encargado_obra: form.encargado_obra || null,
       responsable_empresa: form.responsable_empresa || null, direccion: form.direccion || null,
       localidad: form.localidad || null, provincia: form.provincia || null,
@@ -121,6 +125,16 @@ function NuevoParteContent() {
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Jefe de obra</label><select value={form.jefe_obra} onChange={(e) => setForm({ ...form, jefe_obra: e.target.value })} className={ic}><option value="">Seleccionar...</option>{rrhh.map((r) => <option key={r.id} value={r.nombre}>{r.nombre}</option>)}</select></div>
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Encargado</label><select value={form.encargado_obra} onChange={(e) => setForm({ ...form, encargado_obra: e.target.value })} className={ic}><option value="">Seleccionar...</option>{rrhh.map((r) => <option key={r.id} value={r.nombre}>{r.nombre}</option>)}</select></div>
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Responsable</label><input type="text" value={form.responsable_empresa} onChange={(e) => setForm({ ...form, responsable_empresa: e.target.value })} className={ic} /></div>
+          </div>
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-surface-700 mb-1">Creado por</label>
+            {user?.role === "admin" ? (
+              <select value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} className={ic}>
+                {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+              </select>
+            ) : (
+              <p className="text-sm text-surface-600 py-2">{user?.nombre || "—"}</p>
+            )}
           </div>
         </div>
 

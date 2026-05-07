@@ -11,7 +11,7 @@ import type { ParteDiario, ParteLinea, Documento, ParteAudio, TipoTrabajo, Recur
 import {
   ClipboardList, ArrowLeft, Loader2, Upload, Trash2, FileText,
   Image as ImageIcon, File, CheckCircle2, Clock, Save, ExternalLink,
-  Plus, Mail
+  Plus, Mail, Download
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
@@ -31,6 +31,8 @@ export default function ParteDetallePage() {
   const [tiposTrabajo, setTiposTrabajo] = useState<TipoTrabajo[]>([]);
   const [rrhh, setRrhh] = useState<RecursoHumano[]>([]);
   const [obras, setObras] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [createdBy, setCreatedBy] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -43,7 +45,7 @@ export default function ParteDetallePage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [parteR, lineasR, docsR, audiosR, tiposR, rrhhR, obrasR] = await Promise.all([
+    const [parteR, lineasR, docsR, audiosR, tiposR, rrhhR, obrasR, usersR] = await Promise.all([
       supabase.from("partes_diarios").select("*, obra:obras(*), creator:users!partes_diarios_created_by_fkey(nombre)").eq("id", id).single(),
       supabase.from("parte_lineas").select("*, tipo_trabajo:tipos_trabajo(nombre)").eq("parte_id", id).order("orden"),
       supabase.from("documentos").select("*").eq("parte_id", id).order("created_at", { ascending: false }),
@@ -51,9 +53,11 @@ export default function ParteDetallePage() {
       supabase.from("tipos_trabajo").select("*").eq("activo", true).order("nombre"),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("nombre"),
       supabase.from("obras").select("*").eq("archivada", false).order("nombre"),
+      supabase.from("users").select("id, nombre").order("nombre"),
     ]);
     const p = parteR.data as ParteDiario | null;
     setParte(p);
+    setCreatedBy(p?.created_by || "");
     setForm({
       fecha: p?.fecha || "", obra_id: p?.obra_id || "",
       jefe_obra: p?.jefe_obra || "", encargado_obra: p?.encargado_obra || "",
@@ -73,6 +77,7 @@ export default function ParteDetallePage() {
     setTiposTrabajo(tiposR.data || []);
     setRrhh(rrhhR.data || []);
     setObras(obrasR.data || []);
+    setAllUsers(usersR.data || []);
     setLoading(false);
   }, [id]);
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -98,6 +103,7 @@ export default function ParteDetallePage() {
       direccion: form.direccion || null, localidad: form.localidad || null, provincia: form.provincia || null,
       observaciones: form.observaciones || null,
       firma_data: firmaResp, firma_cliente: firmaCliente,
+      created_by: createdBy || undefined,
     }).eq("id", id);
 
     // Delete old lines and insert new ones
@@ -151,24 +157,49 @@ export default function ParteDetallePage() {
     await (supabase.from("partes_diarios") as any).update({ observaciones: newObs }).eq("id", id);
   };
 
-  const handleSendEmail = () => {
-    // Get contacto obra email from the obra
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const res = await fetch("/api/partes/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parteId: id }) });
+      const data = await res.json();
+      if (data.pdf) {
+        const link = document.createElement("a");
+        link.href = `data:application/pdf;base64,${data.pdf}`;
+        link.download = data.filename;
+        link.click();
+      } else { alert("Error: " + (data.error || "No PDF")); }
+    } catch (err: any) { alert("Error: " + err.message); }
+    setDownloadingPdf(false);
+  };
+
+  const handleSendEmail = async () => {
     const obraData = parte as any;
     const contactEmail = obraData?.obra?.contacto_obra_email || "";
+    const contactName = obraData?.obra?.contacto_obra_nombre || "";
     const obraName = obraData?.obra?.nombre || "Sin obra";
-    const fecha = new Date(parte!.fecha + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
+    const fecha = parte?.fecha ? new Date(parte.fecha + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
 
-    const subject = encodeURIComponent(`Parte de trabajo - ${obraName} - ${fecha}`);
-    const body = encodeURIComponent(
-      `Estimado/a,\n\nAdjunto el parte de trabajo correspondiente a:\n\n` +
-      `Obra: ${obraName}\n` +
-      `Fecha: ${fecha}\n` +
-      `Dirección: ${form.direccion || "—"}, ${form.localidad || ""} ${form.provincia || ""}\n` +
-      `Responsable: ${form.responsable_empresa || "—"}\n\n` +
-      `${form.observaciones ? `Observaciones: ${form.observaciones}\n\n` : ""}` +
-      `Un saludo,\n${user?.nombre || "LEyNA"}`
-    );
-    window.open(`mailto:${contactEmail}?subject=${subject}&body=${body}`, "_blank");
+    const email = prompt("Enviar parte firmado por email a:", contactEmail);
+    if (!email) return;
+
+    setSendingEmail(true);
+    try {
+      const res = await fetch("/api/partes/email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parteId: id, toEmail: email, toName: contactName,
+          subject: `Parte de trabajo — ${obraName} — ${fecha}`,
+          body: `Adjunto el parte de trabajo de la obra ${obraName} del ${fecha}.`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) alert("Email enviado correctamente");
+      else alert("Error enviando email: " + (data.error || ""));
+    } catch (err: any) { alert("Error: " + err.message); }
+    setSendingEmail(false);
   };
 
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -212,9 +243,16 @@ export default function ParteDetallePage() {
         </div>
         <div className="flex items-center gap-2">
           {parte.estado === "firmado" && (
-            <button onClick={handleSendEmail} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100">
-              <Mail className="w-3.5 h-3.5" /> Enviar por email
-            </button>
+            <>
+              <button onClick={handleDownloadPdf} disabled={downloadingPdf}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200 disabled:opacity-60">
+                {downloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} PDF
+              </button>
+              <button onClick={handleSendEmail} disabled={sendingEmail}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-60">
+                {sendingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Enviar
+              </button>
+            </>
           )}
           <span className={cn("badge text-sm", est.class)}>{est.label}</span>
         </div>
@@ -237,6 +275,16 @@ export default function ParteDetallePage() {
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Jefe de obra</label><select value={form.jefe_obra} onChange={(e) => setForm({ ...form, jefe_obra: e.target.value })} disabled={!isEditable} className={isEditable ? ic : icDisabled}><option value="">Seleccionar...</option>{rrhh.map((r) => <option key={r.id} value={r.nombre}>{r.nombre}</option>)}</select></div>
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Encargado</label><select value={form.encargado_obra} onChange={(e) => setForm({ ...form, encargado_obra: e.target.value })} disabled={!isEditable} className={isEditable ? ic : icDisabled}><option value="">Seleccionar...</option>{rrhh.map((r) => <option key={r.id} value={r.nombre}>{r.nombre}</option>)}</select></div>
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Responsable</label><input type="text" value={form.responsable_empresa} onChange={(e) => setForm({ ...form, responsable_empresa: e.target.value })} disabled={!isEditable} className={isEditable ? ic : icDisabled} /></div>
+          </div>
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-surface-700 mb-1">Creado por</label>
+            {user?.role === "admin" && isEditable ? (
+              <select value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} className={ic}>
+                {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+              </select>
+            ) : (
+              <p className="text-sm text-surface-600 py-2">{(parte as any).creator?.nombre || "—"}</p>
+            )}
           </div>
         </div>
 
