@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { generatePartePdf } from "@/lib/pdf/generatePartePdf";
 
 export async function POST(req: NextRequest) {
   try {
@@ -6,16 +7,10 @@ export async function POST(req: NextRequest) {
     if (!parteId || !toEmail) return NextResponse.json({ error: "parteId and toEmail required" }, { status: 400 });
 
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    if (!RESEND_API_KEY) return NextResponse.json({ error: "RESEND_API_KEY not configured" }, { status: 500 });
+    if (!RESEND_API_KEY) return NextResponse.json({ error: "RESEND_API_KEY not configured. Add it in Vercel Environment Variables." }, { status: 500 });
 
-    // First generate PDF
-    const pdfRes = await fetch(new URL("/api/partes/pdf", req.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parteId }),
-    });
-    const pdfData = await pdfRes.json();
-    if (!pdfData.pdf) return NextResponse.json({ error: "Failed to generate PDF: " + (pdfData.error || "") }, { status: 500 });
+    // Generate PDF directly (no internal fetch)
+    const pdfData = await generatePartePdf(parteId);
 
     // Send email via Resend REST API
     const emailRes = await fetch("https://api.resend.com/emails", {
@@ -51,9 +46,14 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    const emailResult = await emailRes.json();
-    if (!emailRes.ok) return NextResponse.json({ error: emailResult.message || "Email error", details: emailResult }, { status: 400 });
+    if (!emailRes.ok) {
+      const errText = await emailRes.text();
+      let errMsg = errText;
+      try { errMsg = JSON.parse(errText).message || errText; } catch {}
+      return NextResponse.json({ error: `Resend error: ${errMsg}` }, { status: 400 });
+    }
 
+    const emailResult = await emailRes.json();
     return NextResponse.json({ success: true, emailId: emailResult.id });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Error sending email" }, { status: 500 });
