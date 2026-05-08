@@ -201,21 +201,38 @@ export default function ParteDetallePage() {
   };
 
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files; if (!files || files.length === 0) return; setUploading(true);
+    const files = e.target.files;
+    if (!files || files.length === 0) { console.log("No files selected"); return; }
+    console.log("Uploading", files.length, "files");
+    setUploading(true);
     let errors: string[] = [];
+    let success = 0;
     for (let i = 0; i < files.length; i++) {
-      const file = files[i]; const path = `partes/${id}/${Date.now()}_${file.name}`;
+      const file = files[i];
+      const path = `partes/${id}/${Date.now()}_${file.name}`;
+      console.log("Uploading:", file.name, "to", path);
       const { error: uploadErr } = await supabase.storage.from("documentos").upload(path, file);
-      if (uploadErr) { errors.push(`${file.name}: ${uploadErr.message}`); continue; }
+      if (uploadErr) {
+        console.error("Storage error:", uploadErr);
+        errors.push(`${file.name}: ${uploadErr.message}`);
+        continue;
+      }
       const { error: insertErr } = await (supabase.from("documentos") as any).insert({
         obra_id: parte?.obra_id || null, parte_id: id, nombre_archivo: file.name,
         tipo: file.type.startsWith("image/") ? "foto" : file.type === "application/pdf" ? "pdf" : "documento",
         categoria: "general", storage_path: path, tamano: file.size, mime_type: file.type, uploaded_by: user?.id,
       });
-      if (insertErr) errors.push(`${file.name} (DB): ${insertErr.message}`);
+      if (insertErr) {
+        console.error("DB error:", insertErr);
+        errors.push(`${file.name} (DB): ${insertErr.message}`);
+      } else {
+        success++;
+      }
     }
-    setUploading(false); if (fileInputRef.current) fileInputRef.current.value = "";
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (errors.length > 0) alert("Errores al subir:\n" + errors.join("\n"));
+    else if (success > 0) console.log("Upload OK:", success, "files");
     fetchData();
   };
   const handleOpenDoc = async (doc: Documento) => { const { data } = await supabase.storage.from("documentos").createSignedUrl(doc.storage_path, 300); if (data?.signedUrl) window.open(data.signedUrl, "_blank"); };
@@ -364,12 +381,12 @@ export default function ParteDetallePage() {
 
         {/* Documentos */}
         <div className="card p-6">
+          <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleUploadFile} />
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-surface-900">Documentos</h2>
-            <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+            <button onClick={() => { console.log("Click subir"); fileInputRef.current?.click(); }} disabled={uploading} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir
             </button>
-            <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleUploadFile} />
           </div>
           {documentos.length === 0 ? <p className="text-xs text-surface-400 text-center py-4">Sin documentos</p> : (
             <div className="space-y-1.5">{documentos.map((doc) => {
@@ -400,13 +417,21 @@ export default function ParteDetallePage() {
 
         {/* Actions */}
         {isEditable && (
-          <div className="flex items-center justify-end gap-3 pb-6">
+          <div className="flex items-center justify-between pb-6">
+            {(!firmaResp || !firmaCliente) && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                ⚠ Para firmar se necesitan ambas firmas{!firmaResp ? " (falta responsable)" : ""}{!firmaCliente ? " (falta cliente)" : ""}
+              </p>
+            )}
+            {firmaResp && firmaCliente && <div />}
+            <div className="flex items-center gap-3 ml-auto">
             <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-surface-700 bg-surface-200 rounded-lg hover:bg-surface-300 disabled:opacity-60">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}<Save className="w-4 h-4" />Guardar
             </button>
-            <button onClick={handleFirmar} disabled={saving || (!firmaResp && !firmaCliente)} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-60">
+            <button onClick={handleFirmar} disabled={saving || !firmaResp || !firmaCliente} title={!firmaResp || !firmaCliente ? "Ambas firmas son obligatorias" : ""} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-60">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}<CheckCircle2 className="w-4 h-4" />Firmar
             </button>
+            </div>
           </div>
         )}
       </div>
