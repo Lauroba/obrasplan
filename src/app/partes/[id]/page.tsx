@@ -202,37 +202,38 @@ export default function ParteDetallePage() {
 
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) { console.log("No files selected"); return; }
-    console.log("Uploading", files.length, "files");
+    if (!files || files.length === 0) return;
+    // Save form first if obra changed
+    if (form.obra_id && form.obra_id !== parte?.obra_id) {
+      await (supabase.from("partes_diarios") as any).update({
+        obra_id: form.obra_id || null, fecha: form.fecha,
+        jefe_obra: form.jefe_obra || null, encargado_obra: form.encargado_obra || null,
+        responsable_empresa: form.responsable_empresa || null,
+        direccion: form.direccion || null, localidad: form.localidad || null, provincia: form.provincia || null,
+        observaciones: form.observaciones || null,
+      }).eq("id", id);
+    }
     setUploading(true);
     let errors: string[] = [];
     let success = 0;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const path = `partes/${id}/${Date.now()}_${file.name}`;
-      console.log("Uploading:", file.name, "to", path);
       const { error: uploadErr } = await supabase.storage.from("documentos").upload(path, file);
-      if (uploadErr) {
-        console.error("Storage error:", uploadErr);
-        errors.push(`${file.name}: ${uploadErr.message}`);
-        continue;
-      }
-      const { error: insertErr } = await (supabase.from("documentos") as any).insert({
-        obra_id: parte?.obra_id || null, parte_id: id, nombre_archivo: file.name,
+      if (uploadErr) { errors.push(`${file.name}: ${uploadErr.message}`); continue; }
+      const insertData: any = {
+        parte_id: id, nombre_archivo: file.name,
         tipo: file.type.startsWith("image/") ? "foto" : file.type === "application/pdf" ? "pdf" : "documento",
         categoria: "general", storage_path: path, tamano: file.size, mime_type: file.type, uploaded_by: user?.id,
-      });
-      if (insertErr) {
-        console.error("DB error:", insertErr);
-        errors.push(`${file.name} (DB): ${insertErr.message}`);
-      } else {
-        success++;
-      }
+      };
+      if (form.obra_id) insertData.obra_id = form.obra_id;
+      const { error: insertErr } = await (supabase.from("documentos") as any).insert(insertData);
+      if (insertErr) errors.push(`${file.name} (DB): ${insertErr.message}`);
+      else success++;
     }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (errors.length > 0) alert("Errores al subir:\n" + errors.join("\n"));
-    else if (success > 0) console.log("Upload OK:", success, "files");
     fetchData();
   };
   const handleOpenDoc = async (doc: Documento) => { const { data } = await supabase.storage.from("documentos").createSignedUrl(doc.storage_path, 300); if (data?.signedUrl) window.open(data.signedUrl, "_blank"); };
