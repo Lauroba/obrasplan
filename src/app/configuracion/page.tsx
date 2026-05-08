@@ -5,10 +5,10 @@ import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
-import { Settings, Loader2, Save, ShieldCheck, Check, X, Plus, Pencil, Trash2 } from "lucide-react";
+import { Settings, Loader2, Save, ShieldCheck, Check, X, Plus, Pencil, Trash2, Mail } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
-type ConfigTab = "roles" | "general";
+type ConfigTab = "roles" | "partes" | "general";
 
 const PANTALLAS = [
   { id: "dashboard", label: "Dashboard" },
@@ -51,6 +51,11 @@ export default function ConfiguracionPage() {
   const [rolForm, setRolForm] = useState({ nombre: "", descripcion: "", is_admin: false });
   const [editingRolId, setEditingRolId] = useState<string | null>(null);
   const [rolSaving, setRolSaving] = useState(false);
+  // Partes config
+  const [partesConfig, setPartesConfig] = useState({ cc_emails: [] as string[], empresa_nombre: "LOYNEK Soluciones Técnicas", footer_text: "Este email ha sido enviado automáticamente desde ObrasPlan", color_primario: "#DC2626" });
+  const [newCcEmail, setNewCcEmail] = useState("");
+  const [partesSaving, setPartesSaving] = useState(false);
+  const [partesSaved, setPartesSaved] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -78,6 +83,9 @@ export default function ConfiguracionPage() {
 
     setRoles(result);
     if (result.length > 0 && !selectedRol) setSelectedRol(result[0].id);
+    // Fetch partes config
+    const { data: settingsData } = await supabase.from("app_settings").select("*").eq("key", "partes_email").single();
+    if (settingsData?.value) setPartesConfig({ ...partesConfig, ...settingsData.value });
     setLoading(false);
   }, []);
 
@@ -155,7 +163,7 @@ export default function ConfiguracionPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-surface-200">
-          {[{ id: "roles" as ConfigTab, label: "Roles y permisos" }, { id: "general" as ConfigTab, label: "General" }].map((t) => (
+          {[{ id: "roles" as ConfigTab, label: "Roles y permisos" }, { id: "partes" as ConfigTab, label: "Partes / Email" }, { id: "general" as ConfigTab, label: "General" }].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={cn("px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-all",
                 tab === t.id ? "border-brand-500 text-brand-600" : "border-transparent text-surface-500")}>
@@ -247,6 +255,57 @@ export default function ConfiguracionPage() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* PARTES TAB */}
+            {tab === "partes" && (
+              <div className="space-y-6">
+                <div className="card p-6 space-y-4">
+                  <h2 className="text-sm font-semibold text-surface-900">Emails en copia (CC)</h2>
+                  <p className="text-xs text-surface-400">Estas direcciones recibirán una copia de todos los partes que se envíen por email.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {partesConfig.cc_emails.map((email, i) => (
+                      <span key={i} className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-200">
+                        {email}
+                        <button onClick={() => setPartesConfig({ ...partesConfig, cc_emails: partesConfig.cc_emails.filter((_, j) => j !== i) })} className="ml-1 hover:text-red-500"><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="email" value={newCcEmail} onChange={(e) => setNewCcEmail(e.target.value)} placeholder="email@ejemplo.com" onKeyDown={(e) => { if (e.key === "Enter" && newCcEmail.includes("@")) { e.preventDefault(); setPartesConfig({ ...partesConfig, cc_emails: [...partesConfig.cc_emails, newCcEmail] }); setNewCcEmail(""); } }}
+                      className="flex-1 px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" />
+                    <button onClick={() => { if (newCcEmail.includes("@")) { setPartesConfig({ ...partesConfig, cc_emails: [...partesConfig.cc_emails, newCcEmail] }); setNewCcEmail(""); } }}
+                      className="flex items-center gap-1 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600"><Plus className="w-4 h-4" />Añadir</button>
+                  </div>
+                </div>
+
+                <div className="card p-6 space-y-4">
+                  <h2 className="text-sm font-semibold text-surface-900">Diseño del email y PDF</h2>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre de empresa</label><input type="text" value={partesConfig.empresa_nombre} onChange={(e) => setPartesConfig({ ...partesConfig, empresa_nombre: e.target.value })} className="w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" /></div>
+                    <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Color primario</label>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={partesConfig.color_primario} onChange={(e) => setPartesConfig({ ...partesConfig, color_primario: e.target.value })} className="w-10 h-10 rounded cursor-pointer border border-surface-200" />
+                        <input type="text" value={partesConfig.color_primario} onChange={(e) => setPartesConfig({ ...partesConfig, color_primario: e.target.value })} className="flex-1 px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 font-mono" />
+                      </div>
+                    </div>
+                  </div>
+                  <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Texto del footer</label><input type="text" value={partesConfig.footer_text} onChange={(e) => setPartesConfig({ ...partesConfig, footer_text: e.target.value })} className="w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500" /></div>
+                </div>
+
+                <div className="flex justify-end">
+                  <button onClick={async () => {
+                    setPartesSaving(true);
+                    await (supabase.from("app_settings") as any).upsert({ key: "partes_email", value: partesConfig, updated_at: new Date().toISOString() }, { onConflict: "key" });
+                    setPartesSaving(false); setPartesSaved(true); setTimeout(() => setPartesSaved(false), 2000);
+                  }} disabled={partesSaving}
+                    className={cn("flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg",
+                      partesSaved ? "text-emerald-700 bg-emerald-100" : "text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-60")}>
+                    {partesSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : partesSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                    {partesSaved ? "Guardado" : "Guardar configuración"}
+                  </button>
+                </div>
               </div>
             )}
 

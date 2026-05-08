@@ -145,7 +145,13 @@ export default function ParteDetallePage() {
       try {
         const { data: obraEmail } = await supabase.from("obras").select("*").eq("id", form.obra_id).single();
         if (obraEmail?.contacto_obra_email && confirm(`Parte firmado.\n\n¿Enviar por email a ${obraEmail.contacto_obra_email}?`)) {
-          handleSendEmail();
+          const email = obraEmail.contacto_obra_email;
+          setSendingEmail(true);
+          const res = await fetch("/api/partes/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parteId: id, toEmail: email }) });
+          const data = await res.json();
+          if (data.success) alert("Email enviado a " + email);
+          else alert("Error: " + (data.error || ""));
+          setSendingEmail(false);
         }
       } catch { /* ignore */ }
     }
@@ -178,26 +184,18 @@ export default function ParteDetallePage() {
   const handleSendEmail = async () => {
     const obraData = parte as any;
     const contactEmail = obraData?.obra?.contacto_obra_email || "";
-    const contactName = obraData?.obra?.contacto_obra_nombre || "";
-    const obraName = obraData?.obra?.nombre || "Sin obra";
-    const fecha = parte?.fecha ? new Date(parte.fecha + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
-
-    const email = prompt("Enviar parte firmado por email a:", contactEmail);
+    const email = prompt("Enviar parte por email a:", contactEmail);
     if (!email) return;
 
     setSendingEmail(true);
     try {
       const res = await fetch("/api/partes/email", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parteId: id, toEmail: email, toName: contactName,
-          subject: `Parte de trabajo — ${obraName} — ${fecha}`,
-          body: `Adjunto el parte de trabajo de la obra ${obraName} del ${fecha}.`,
-        }),
+        body: JSON.stringify({ parteId: id, toEmail: email }),
       });
       const data = await res.json();
-      if (data.success) alert("Email enviado correctamente");
-      else alert("Error enviando email: " + (data.error || ""));
+      if (data.success) alert("Email enviado correctamente a " + email);
+      else alert("Error: " + (data.error || "Error desconocido"));
     } catch (err: any) { alert("Error: " + err.message); }
     setSendingEmail(false);
   };
