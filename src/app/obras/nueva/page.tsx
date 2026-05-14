@@ -24,6 +24,7 @@ function NuevaObraContent() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [tiposObra, setTiposObra] = useState<any[]>([]);
+  const [rrhhList, setRrhhList] = useState<any[]>([]);
   const [tiposSeleccionados, setTiposSeleccionados] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(!!editId);
@@ -32,6 +33,8 @@ function NuevaObraContent() {
     direccion: "", localidad: "", provincia: "",
     num_presupuesto: "", num_factura: "",
     contacto_obra_nombre: "", contacto_obra_telefono: "", contacto_obra_email: "",
+    responsable_obra_id: "",
+    flag_rrhh_sin_asignar: false, flag_vehiculo_sin_asignar: false,
     observaciones: "", color: COLORS[Math.floor(Math.random() * COLORS.length)]
   });
 
@@ -40,10 +43,12 @@ function NuevaObraContent() {
       supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
       supabase.from("tipos_obra").select("*").eq("activo", true).order("nombre").then(r => r).catch(() => ({ data: [] })),
-    ]).then(([c, e, t]) => {
+      supabase.from("recursos_humanos").select("id, nombre").eq("activo", true).order("nombre"),
+    ]).then(([c, e, t, r]) => {
       setClientes(c.data || []);
       setEstados(e.data || []);
       setTiposObra(t.data || []);
+      setRrhhList(r.data || []);
       if (!editId) {
         const pendiente = (e.data || []).find((es: EstadoObra) => es.nombre.toLowerCase().includes("pendiente"));
         if (pendiente) setForm((f) => ({ ...f, estado_obra_id: pendiente.id }));
@@ -58,9 +63,11 @@ function NuevaObraContent() {
             num_presupuesto: data.num_presupuesto || "", num_factura: data.num_factura || "",
             contacto_obra_nombre: data.contacto_obra_nombre || "", contacto_obra_telefono: data.contacto_obra_telefono || "",
             contacto_obra_email: data.contacto_obra_email || "",
+            responsable_obra_id: data.responsable_obra_id || "",
+            flag_rrhh_sin_asignar: data.flag_rrhh_sin_asignar || false,
+            flag_vehiculo_sin_asignar: data.flag_vehiculo_sin_asignar || false,
             observaciones: data.observaciones || "", color: data.color || COLORS[0],
           });
-          // Load tipos from junction table
           const { data: tipos } = await supabase.from("obra_tipos_obra").select("tipo_obra_id").eq("obra_id", editId);
           if (tipos) setTiposSeleccionados(tipos.map((t: any) => t.tipo_obra_id));
         }
@@ -69,7 +76,6 @@ function NuevaObraContent() {
     }
   }, [editId]);
 
-  // When client changes, copy contact info to contacto obra
   const handleClienteChange = (clienteId: string) => {
     const cliente = clientes.find((c) => c.id === clienteId);
     setForm((f) => ({
@@ -87,6 +93,9 @@ function NuevaObraContent() {
         nombre: form.nombre, cliente_id: form.cliente_id || null,
         ubicacion: form.direccion || null, estado_obra_id: form.estado_obra_id || null,
         observaciones: form.observaciones || null, color: form.color,
+        responsable_obra_id: form.responsable_obra_id || null,
+        flag_rrhh_sin_asignar: form.flag_rrhh_sin_asignar,
+        flag_vehiculo_sin_asignar: form.flag_vehiculo_sin_asignar,
       };
       if (form.direccion) payload.direccion = form.direccion;
       if (form.localidad) payload.localidad = form.localidad;
@@ -109,7 +118,6 @@ function NuevaObraContent() {
         obraId = obra.id;
       }
 
-      // Save tipos to junction table
       if (obraId) {
         await (supabase.from("obra_tipos_obra") as any).delete().eq("obra_id", obraId);
         if (tiposSeleccionados.length > 0) {
@@ -118,7 +126,6 @@ function NuevaObraContent() {
           );
         }
       }
-
       router.push(`/obras/${obraId}`);
     } catch (err: any) {
       alert("Error al guardar: " + (err?.message || err));
@@ -139,13 +146,18 @@ function NuevaObraContent() {
         <h1 className="text-xl font-display font-bold text-surface-900">{editId ? "Editar Obra" : "Nueva Obra"}</h1>
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* General */}
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-surface-900">Datos generales</h2>
           <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre *</label><input type="text" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Reforma Local" className={ic} /></div>
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Cliente</label><select value={form.cliente_id} onChange={(e) => handleClienteChange(e.target.value)} className={ic}><option value="">Sin cliente</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Estado</label><select value={form.estado_obra_id} onChange={(e) => setForm({ ...form, estado_obra_id: e.target.value })} className={ic}><option value="">Sin estado</option>{estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></div>
+          </div>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Responsable de obra</label>
+            <select value={form.responsable_obra_id} onChange={(e) => setForm({ ...form, responsable_obra_id: e.target.value })} className={ic}>
+              <option value="">Sin responsable</option>
+              {rrhhList.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+            </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-surface-700 mb-1.5">Tipos de obra</label>
@@ -169,7 +181,6 @@ function NuevaObraContent() {
           </div>
         </div>
 
-        {/* Dirección */}
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-surface-900">Dirección de la obra</h2>
           <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Dirección</label><input type="text" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} placeholder="Calle, número..." className={ic} /></div>
@@ -179,7 +190,6 @@ function NuevaObraContent() {
           </div>
         </div>
 
-        {/* Cliente info (read-only) + Contacto obra (editable) */}
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-surface-900">Contacto</h2>
           {selectedCliente && (
@@ -196,7 +206,30 @@ function NuevaObraContent() {
           </div>
         </div>
 
-        {/* Color + notas */}
+        {/* Flags especiales */}
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Configuración especial</h2>
+          <p className="text-xs text-surface-400">Activa estos flags para que esta obra muestre automáticamente los recursos sin asignar en el planificador.</p>
+          <div className="flex flex-col gap-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={form.flag_rrhh_sin_asignar} onChange={(e) => setForm({ ...form, flag_rrhh_sin_asignar: e.target.checked })}
+                className="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500" />
+              <div>
+                <span className="text-sm font-medium text-surface-900">RRHH Sin Asignar</span>
+                <p className="text-xs text-surface-400">Muestra automáticamente las personas no asignadas cada día laborable</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={form.flag_vehiculo_sin_asignar} onChange={(e) => setForm({ ...form, flag_vehiculo_sin_asignar: e.target.checked })}
+                className="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500" />
+              <div>
+                <span className="text-sm font-medium text-surface-900">Vehículos Sin Asignar</span>
+                <p className="text-xs text-surface-400">Muestra automáticamente los vehículos no asignados cada día laborable</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-surface-900">Apariencia</h2>
           <div>

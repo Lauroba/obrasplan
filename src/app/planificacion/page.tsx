@@ -231,6 +231,7 @@ export default function PlanificacionPage() {
   const [resourceFilter, setResourceFilter] = useState<ResourceFilter>("all");
   const [panelFilter, setPanelFilter] = useState<PanelFilter>("all");
   const [panelOpen, setPanelOpen] = useState(true);
+  const [resourceSearch, setResourceSearch] = useState("");
   const [activeDrag, setActiveDrag] = useState<{ nombre: string; foto_url?: string | null; color?: string; iconType: string } | null>(null);
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
   const [manualModal, setManualModal] = useState<{ obraId: string; obraName: string } | null>(null);
@@ -270,19 +271,17 @@ export default function PlanificacionPage() {
 
   const assignGrid = useMemo(() => {
     const g: Record<string, Asignacion[]> = {};
-    asignaciones.forEach((a) => {
-      const s = new Date(a.fecha_inicio); const e = new Date(a.fecha_fin);
+    allAssignments.forEach((a) => {
+      const s = new Date(a.fecha_inicio + "T12:00:00"); const e = new Date(a.fecha_fin + "T12:00:00");
       for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
         const ds = toDS(d);
-        // Key by obra+date (for Vista Obras)
         const k1 = `${a.obra_id}|${ds}`; if (!g[k1]) g[k1] = []; g[k1].push(a);
-        // Key by person+date (for Vista RRHH) — only humano type
         if (a.recurso_tipo === "humano") {
           const k2 = `person-${a.recurso_id}|${ds}`; if (!g[k2]) g[k2] = []; g[k2].push(a);
         }
       }
     }); return g;
-  }, [asignaciones]);
+  }, [allAssignments]);
 
   const conflictCells = useMemo(() => {
     const rdm: Record<string, { obraId: string }[]> = {};
@@ -328,6 +327,45 @@ export default function PlanificacionPage() {
   const resto = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
   const sortedObras = [...conAsig, ...aPlanificar, ...resto];
   const obraIds = sortedObras.map((o) => o.id);
+
+  // Virtual assignments for "sin asignar" obras (visual only, not saved in DB)
+  const virtualAssignments = useMemo(() => {
+    const virtuals: Asignacion[] = [];
+    const rrhhSinAsignarObra = sortedObras.find((o) => (o as any).flag_rrhh_sin_asignar);
+    const vehSinAsignarObra = sortedObras.find((o) => (o as any).flag_vehiculo_sin_asignar);
+    if (!rrhhSinAsignarObra && !vehSinAsignarObra) return virtuals;
+
+    const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; }); // Mon-Fri
+
+    if (rrhhSinAsignarObra) {
+      const assignableRrhh = rrhh.filter((r) => (r as any).asignable !== false);
+      for (const person of assignableRrhh) {
+        for (const ds of weekDays) {
+          const isAssigned = asignaciones.some((a) => a.recurso_tipo === "humano" && a.recurso_id === person.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
+          if (!isAssigned) {
+            virtuals.push({ id: `virtual-rrhh-${person.id}-${ds}`, obra_id: rrhhSinAsignarObra.id, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
+          }
+        }
+      }
+    }
+
+    if (vehSinAsignarObra) {
+      const assignableVeh = vehList.filter((r) => (r as any).asignable !== false);
+      for (const veh of assignableVeh) {
+        for (const ds of weekDays) {
+          const isAssigned = asignaciones.some((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === veh.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
+          if (!isAssigned) {
+            virtuals.push({ id: `virtual-veh-${veh.id}-${ds}`, obra_id: vehSinAsignarObra.id, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
+          }
+        }
+      }
+    }
+
+    return virtuals;
+  }, [sortedObras, rrhh, vehList, dateStrs, asignaciones]);
+
+  // Merge real + virtual for display
+  const allAssignments = useMemo(() => [...asignaciones, ...virtualAssignments], [asignaciones, virtualAssignments]);
   // obraIds computed above with sortedObras
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
@@ -424,38 +462,48 @@ export default function PlanificacionPage() {
     const s = new Date(manualForm.fecha_inicio); const e = new Date(manualForm.fecha_fin);
     const inserts: any[] = [];
     for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      inserts.push({ obra_id: manualModal.obraId, recurso_tipo: manualForm.recurso_tipo, recurso_id: manualForm.recurso_id, fecha_inicio: toDS(d), fecha_fin: toDS(d) });
+      const ds = toDS(d);
+      // Check if already assigned this resource to this obra on this day
+      const alreadyExists = asignaciones.some((a) =>
+        a.obra_id === manualModal.obraId && a.recurso_tipo === manualForm.recurso_tipo &&
+        a.recurso_id === manualForm.recurso_id && a.fecha_inicio <= ds && a.fecha_fin >= ds
+      );
+      if (!alreadyExists) {
+        inserts.push({ obra_id: manualModal.obraId, recurso_tipo: manualForm.recurso_tipo, recurso_id: manualForm.recurso_id, fecha_inicio: ds, fecha_fin: ds });
+      }
     }
     if (inserts.length > 0) await supabase.from("asignaciones").insert(inserts);
     setManualSaving(false); setManualModal(null); fetchData();
   };
 
   const getResourceList = (tipo: RecursoTipo) => {
-    if (tipo === "humano") return rrhh.map((r) => ({ id: r.id, nombre: r.nombre }));
-    if (tipo === "maquinaria") return maqList.map((r) => ({ id: r.id, nombre: r.nombre }));
-    if (tipo === "vehiculo") return vehList.map((r) => ({ id: r.id, nombre: r.nombre }));
-    return matList.map((r) => ({ id: r.id, nombre: r.nombre }));
+    if (tipo === "humano") return rrhh.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
+    if (tipo === "maquinaria") return maqList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
+    if (tipo === "vehiculo") return vehList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
+    return matList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
   };
 
-  // Panel items for Vista Obras
+  // Panel items for Vista Obras (filter asignable + search)
   const obrasPanelItems = useMemo(() => {
     const all: { dragId: string; nombre: string; foto_url?: string | null; detail?: string; count: number; iconType: string }[] = [];
-    if (resourceFilter === "all" || resourceFilter === "humano") rrhh.forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
-    if (resourceFilter === "all" || resourceFilter === "maquinaria") maqList.forEach((r) => all.push({ dragId: `res-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "maquinaria" && a.recurso_id === r.id).length, iconType: "maquinaria" }));
-    if (resourceFilter === "all" || resourceFilter === "vehiculo") vehList.forEach((r) => all.push({ dragId: `res-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === r.id).length, iconType: "vehiculo" }));
-    if (resourceFilter === "all" || resourceFilter === "material") matList.forEach((r) => all.push({ dragId: `res-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "material" && a.recurso_id === r.id).length, iconType: "material" }));
-    return all.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [resourceFilter, rrhh, maqList, vehList, matList, asignaciones]);
+    const search = resourceSearch.toLowerCase();
+    if (resourceFilter === "all" || resourceFilter === "humano") rrhh.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
+    if (resourceFilter === "all" || resourceFilter === "maquinaria") maqList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "maquinaria" && a.recurso_id === r.id).length, iconType: "maquinaria" }));
+    if (resourceFilter === "all" || resourceFilter === "vehiculo") vehList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === r.id).length, iconType: "vehiculo" }));
+    if (resourceFilter === "all" || resourceFilter === "material") matList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "material" && a.recurso_id === r.id).length, iconType: "material" }));
+    return all.filter((r) => !search || r.nombre.toLowerCase().includes(search) || (r.detail || "").toLowerCase().includes(search)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, [resourceFilter, rrhh, maqList, vehList, matList, asignaciones, resourceSearch]);
 
-  // Panel items for Vista RRHH
+  // Panel items for Vista RRHH (filter asignable + search)
   const rrhhPanelItems = useMemo(() => {
     const all: { dragId: string; nombre: string; foto_url?: string | null; color?: string; detail?: string; count: number; iconType: string }[] = [];
+    const search = resourceSearch.toLowerCase();
     if (panelFilter === "all" || panelFilter === "obra") sortedObras.forEach((o) => all.push({ dragId: `panel-obra|${o.id}`, nombre: o.nombre, color: o.color || "#DC2626", detail: (o as any).cliente?.nombre, count: asignaciones.filter((a) => a.obra_id === o.id && a.recurso_tipo === "humano").length, iconType: "obra" }));
-    if (panelFilter === "all" || panelFilter === "maquinaria") maqList.forEach((r) => all.push({ dragId: `panel-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: 0, iconType: "maquinaria" }));
-    if (panelFilter === "all" || panelFilter === "vehiculo") vehList.forEach((r) => all.push({ dragId: `panel-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: 0, iconType: "vehiculo" }));
-    if (panelFilter === "all" || panelFilter === "material") matList.forEach((r) => all.push({ dragId: `panel-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: 0, iconType: "material" }));
-    return all.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [panelFilter, sortedObras, maqList, vehList, matList, asignaciones]);
+    if (panelFilter === "all" || panelFilter === "maquinaria") maqList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `panel-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: 0, iconType: "maquinaria" }));
+    if (panelFilter === "all" || panelFilter === "vehiculo") vehList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `panel-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: 0, iconType: "vehiculo" }));
+    if (panelFilter === "all" || panelFilter === "material") matList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `panel-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: 0, iconType: "material" }));
+    return all.filter((r) => !search || r.nombre.toLowerCase().includes(search) || (r.detail || "").toLowerCase().includes(search)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, [panelFilter, sortedObras, maqList, vehList, matList, asignaciones, resourceSearch]);
 
   const dayLabel = (d: Date, i: number) => {
     if (viewMode === "week") return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
@@ -545,9 +593,10 @@ export default function PlanificacionPage() {
 
                   {/* ===== VISTA RRHH ===== */}
                   {planView === "rrhh" && (() => {
+                    const assignableRrhh = rrhh.filter((r) => (r as any).asignable !== false);
                     const rrhhWithAssignments = new Set<string>();
                     asignaciones.forEach((a) => { if (a.recurso_tipo === "humano") dateStrs.forEach((ds) => { if (a.fecha_inicio <= ds && a.fecha_fin >= ds) rrhhWithAssignments.add(a.recurso_id); }); });
-                    const sortedRrhh = [...rrhh].sort((a, b) => {
+                    const sortedRrhh = [...assignableRrhh].sort((a, b) => {
                       const aHas = rrhhWithAssignments.has(a.id);
                       const bHas = rrhhWithAssignments.has(b.id);
                       if (aHas && !bHas) return -1;
@@ -597,6 +646,11 @@ export default function PlanificacionPage() {
                 )}
 
                 <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+                  {/* Search box */}
+                  <div className="px-1 pb-1">
+                    <input type="text" value={resourceSearch} onChange={(e) => setResourceSearch(e.target.value)} placeholder="Buscar recurso..."
+                      className="w-full px-2.5 py-1.5 bg-surface-50 border border-surface-200 rounded-md text-[11px] placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:border-brand-400" />
+                  </div>
                   {planView === "obras" ? obrasPanelItems.map((r) => <PanelItem key={r.dragId} {...r} />) :
                     rrhhPanelItems.map((r) => <PanelItem key={r.dragId} {...r} />)}
                 </div>
