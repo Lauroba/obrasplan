@@ -322,10 +322,12 @@ export default function PlanificacionPage() {
   });
   const filteredObras = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
   const alpha = (a: any, b: any) => a.nombre.localeCompare(b.nombre, "es");
-  const conAsig = filteredObras.filter((o) => obrasConAsignacion.has(o.id)).sort(alpha);
-  const aPlanificar = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
-  const resto = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
-  const sortedObras = [...conAsig, ...aPlanificar, ...resto];
+  const flagObras = filteredObras.filter((o) => (o as any).flag_rrhh_sin_asignar || (o as any).flag_vehiculo_sin_asignar).sort(alpha);
+  const flagIds = new Set(flagObras.map((o) => o.id));
+  const conAsig = filteredObras.filter((o) => !flagIds.has(o.id) && obrasConAsignacion.has(o.id)).sort(alpha);
+  const aPlanificar = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
+  const resto = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
+  const sortedObras = [...flagObras, ...conAsig, ...aPlanificar, ...resto];
   const obraIds = sortedObras.map((o) => o.id);
 
   // Virtual assignments for special obras (visual only)
