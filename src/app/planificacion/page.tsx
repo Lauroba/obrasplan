@@ -271,7 +271,7 @@ export default function PlanificacionPage() {
 
   const assignGrid = useMemo(() => {
     const g: Record<string, Asignacion[]> = {};
-    allAssignments.forEach((a) => {
+    asignaciones.forEach((a) => {
       const s = new Date(a.fecha_inicio + "T12:00:00"); const e = new Date(a.fecha_fin + "T12:00:00");
       for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
         const ds = toDS(d);
@@ -281,7 +281,7 @@ export default function PlanificacionPage() {
         }
       }
     }); return g;
-  }, [allAssignments]);
+  }, [asignaciones]);
 
   const conflictCells = useMemo(() => {
     const rdm: Record<string, { obraId: string }[]> = {};
@@ -328,44 +328,46 @@ export default function PlanificacionPage() {
   const sortedObras = [...conAsig, ...aPlanificar, ...resto];
   const obraIds = sortedObras.map((o) => o.id);
 
-  // Virtual assignments for "sin asignar" obras (visual only, not saved in DB)
-  const virtualAssignments = useMemo(() => {
-    const virtuals: Asignacion[] = [];
+  // Virtual assignments for special obras (visual only)
+  const displayGrid = useMemo(() => {
+    // Start with a copy of assignGrid
+    const g: Record<string, Asignacion[]> = {};
+    Object.entries(assignGrid).forEach(([k, v]) => { g[k] = [...v]; });
+
     const rrhhSinAsignarObra = sortedObras.find((o) => (o as any).flag_rrhh_sin_asignar);
     const vehSinAsignarObra = sortedObras.find((o) => (o as any).flag_vehiculo_sin_asignar);
-    if (!rrhhSinAsignarObra && !vehSinAsignarObra) return virtuals;
+    if (!rrhhSinAsignarObra && !vehSinAsignarObra) return g;
 
-    const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; }); // Mon-Fri
+    const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; });
 
     if (rrhhSinAsignarObra) {
-      const assignableRrhh = rrhh.filter((r) => (r as any).asignable !== false);
-      for (const person of assignableRrhh) {
-        for (const ds of weekDays) {
+      rrhh.filter((r) => (r as any).asignable !== false).forEach((person) => {
+        weekDays.forEach((ds) => {
           const isAssigned = asignaciones.some((a) => a.recurso_tipo === "humano" && a.recurso_id === person.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
           if (!isAssigned) {
-            virtuals.push({ id: `virtual-rrhh-${person.id}-${ds}`, obra_id: rrhhSinAsignarObra.id, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
+            const k = `${rrhhSinAsignarObra.id}|${ds}`;
+            if (!g[k]) g[k] = [];
+            g[k].push({ id: `v-rrhh-${person.id}-${ds}`, obra_id: rrhhSinAsignarObra.id, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
           }
-        }
-      }
+        });
+      });
     }
 
     if (vehSinAsignarObra) {
-      const assignableVeh = vehList.filter((r) => (r as any).asignable !== false);
-      for (const veh of assignableVeh) {
-        for (const ds of weekDays) {
+      vehList.filter((r) => (r as any).asignable !== false).forEach((veh) => {
+        weekDays.forEach((ds) => {
           const isAssigned = asignaciones.some((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === veh.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
           if (!isAssigned) {
-            virtuals.push({ id: `virtual-veh-${veh.id}-${ds}`, obra_id: vehSinAsignarObra.id, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
+            const k = `${vehSinAsignarObra.id}|${ds}`;
+            if (!g[k]) g[k] = [];
+            g[k].push({ id: `v-veh-${veh.id}-${ds}`, obra_id: vehSinAsignarObra.id, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
           }
-        }
-      }
+        });
+      });
     }
 
-    return virtuals;
-  }, [sortedObras, rrhh, vehList, dateStrs, asignaciones]);
-
-  // Merge real + virtual for display
-  const allAssignments = useMemo(() => [...asignaciones, ...virtualAssignments], [asignaciones, virtualAssignments]);
+    return g;
+  }, [assignGrid, sortedObras, rrhh, vehList, dateStrs, asignaciones]);
   // obraIds computed above with sortedObras
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
@@ -582,7 +584,7 @@ export default function PlanificacionPage() {
                     <SortableContext key={obraIds.join(",")} items={obraIds} strategy={verticalListSortingStrategy}>
                       {sortedObras.map((obra) => (
                         <ObraRow key={obra.id} obra={obra} dateStrs={dateStrs} days={days}
-                          assignGrid={assignGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
+                          assignGrid={displayGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
                           conflictCells={conflictCells} onRemove={handleRemove} onArchive={handleArchive}
                           onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
                           onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
@@ -608,7 +610,7 @@ export default function PlanificacionPage() {
                       <SortableContext key={rrhhIds.join(",")} items={rrhhIds} strategy={verticalListSortingStrategy}>
                         {sortedRrhh.map((persona) => (
                           <SortablePersonRow key={persona.id} persona={persona} dateStrs={dateStrs} days={days}
-                            assignGrid={assignGrid} obras={obras} onRemove={handleRemove} dw={dw}
+                            assignGrid={displayGrid} obras={obras} onRemove={handleRemove} dw={dw}
                             isWeekend={isWeekendFn} isToday={isTodayFn} />
                         ))}
                       </SortableContext>
