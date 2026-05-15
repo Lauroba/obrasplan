@@ -13,7 +13,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  CalendarRange, Calendar, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
+  CalendarRange, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
   Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -523,8 +523,6 @@ export default function PlanificacionPage() {
     return i % 7 === 0 ? `S${Math.ceil((i + 1) / 7)}` : "";
   };
 
-  if (loading) return <AppLayout><div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div></AppLayout>;
-
   const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
 
   // Mobile helper
@@ -535,6 +533,8 @@ export default function PlanificacionPage() {
     const mon = new Date(d); mon.setDate(diff);
     return Array.from({ length: 7 }, (_, i) => { const dd = new Date(mon); dd.setDate(mon.getDate() + i); return dd; });
   }, [mobileDay]);
+
+  if (loading) return <AppLayout><div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div></AppLayout>;
 
   if (isMobile) {
     const DAY_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
@@ -583,7 +583,7 @@ export default function PlanificacionPage() {
           <p className="text-sm font-semibold text-surface-900 mb-3">{mobileDay.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</p>
           {/* Obras */}
           {mobileObras.length === 0 ? (
-            <div className="text-center py-12 bg-surface-50 rounded-xl border border-surface-100"><Calendar className="w-8 h-8 text-surface-300 mx-auto mb-2" /><p className="text-sm text-surface-500">Sin asignaciones</p></div>
+            <div className="text-center py-12 bg-surface-50 rounded-xl border border-surface-100"><CalendarRange className="w-8 h-8 text-surface-300 mx-auto mb-2" /><p className="text-sm text-surface-500">Sin asignaciones</p></div>
           ) : (
             <div className="space-y-3">
               {mobileObras.map(({ obra, recursos }) => {

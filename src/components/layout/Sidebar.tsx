@@ -65,22 +65,15 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <>
-      {/* Logo */}
-      <div className="flex items-center justify-between gap-3 px-4 h-16 border-b border-surface-200 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 relative shrink-0">
-            <Image src="/logo.png" alt="Loynek" fill className="object-contain" />
+      {/* Logo only */}
+      <div className="flex items-center justify-between px-4 h-16 border-b border-surface-200 shrink-0">
+        <Link href="/dashboard" className="flex items-center justify-center w-full">
+          <div className={cn("relative shrink-0", collapsed && !mobileMenuOpen ? "w-10 h-10" : "w-36 h-12")}>
+            <Image src="/logo-loynek.png" alt="Loynek" fill className="object-contain" />
           </div>
-          {(!collapsed || mobileMenuOpen) && (
-            <div className="flex flex-col min-w-0">
-              <span className="font-display font-bold text-surface-900 text-sm leading-tight">ObrasPlan</span>
-              <span className="text-[10px] text-surface-400 font-medium tracking-wider uppercase">Loynek</span>
-            </div>
-          )}
-        </div>
-        {/* Close button on mobile */}
+        </Link>
         {mobileMenuOpen && (
-          <button onClick={() => setMobileMenu(false)} className="p-1 rounded-lg text-surface-400 hover:bg-surface-100 lg:hidden">
+          <button onClick={() => setMobileMenu(false)} className="p-1 rounded-lg text-surface-400 hover:bg-surface-100 lg:hidden absolute right-3">
             <X className="w-5 h-5" />
           </button>
         )}
@@ -116,7 +109,6 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Desktop sidebar */}
       <aside className={cn(
         "hidden lg:flex fixed left-0 top-0 z-40 h-screen bg-white border-r border-surface-200 flex-col transition-all duration-300",
         collapsed ? "w-[72px]" : "w-[260px]"
@@ -124,7 +116,6 @@ export default function Sidebar() {
         {sidebarContent}
       </aside>
 
-      {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileMenu(false)} />
