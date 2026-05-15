@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
+import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import type { Obra, RecursoHumano } from "@/lib/types/database";
-import { ClipboardList, Plus, Loader2, CheckCircle2, Clock, FileSignature, Search, X } from "lucide-react";
+import { ClipboardList, Plus, Loader2, CheckCircle2, Clock, FileSignature, X, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/hooks/useAuth";
+
+const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export default function PartesPage() {
   const supabase = createClient();
@@ -23,23 +26,81 @@ export default function PartesPage() {
   const [filterObra, setFilterObra] = useState("");
   const [filterFecha, setFilterFecha] = useState("");
   const [filterPersona, setFilterPersona] = useState("");
+  // Obra selector modal for multiple assignments
+  const [obraSelectModal, setObraSelectModal] = useState(false);
+  const [obraOptions, setObraOptions] = useState<{ id: string; nombre: string; color: string }[]>([]);
+  const [noObraError, setNoObraError] = useState("");
+
+  const isAdmin = user?.role === "admin";
 
   const createDraft = async (obraId?: string) => {
     setCreating(true);
-    const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    setNoObraError("");
+
+    if (!isAdmin && !obraId) {
+      // Find obras assigned to this user today
+      const today = toDS(new Date());
+      const recursoId = user?.recurso_id;
+
+      if (!recursoId) {
+        setNoObraError("Tu usuario no está vinculado a un recurso humano. Contacta con el administrador.");
+        setCreating(false);
+        return;
+      }
+
+      const { data: asigs } = await supabase.from("asignaciones").select("obra_id").eq("recurso_tipo", "humano").eq("recurso_id", recursoId);
+      
+      // Filter assignments that include today
+      const todayAsigs = (asigs || []).filter((a: any) => a.fecha_inicio <= today && a.fecha_fin >= today);
+      
+      // Get unique obra IDs
+      const uniqueObraIds = Array.from(new Set(todayAsigs.map((a: any) => a.obra_id)));
+
+      if (uniqueObraIds.length === 0) {
+        setNoObraError("No tienes ninguna obra asignada hoy. No puedes crear un parte.");
+        setCreating(false);
+        return;
+      }
+
+      if (uniqueObraIds.length === 1) {
+        obraId = uniqueObraIds[0];
+      } else {
+        // Multiple obras - show selector
+        const { data: obrasData } = await supabase.from("obras").select("id, nombre, color").in("id", uniqueObraIds);
+        setObraOptions((obrasData || []).sort((a: any, b: any) => a.nombre.localeCompare(b.nombre)));
+        setObraSelectModal(true);
+        setCreating(false);
+        return;
+      }
+    }
+
+    // Get obra address for the parte
+    let direccion = null, localidad = null, provincia = null;
+    if (obraId) {
+      const { data: obraData } = await supabase.from("obras").select("direccion, localidad, provincia").eq("id", obraId).single();
+      if (obraData) { direccion = obraData.direccion; localidad = obraData.localidad; provincia = obraData.provincia; }
+    }
+
     const { data: parte, error } = await (supabase.from("partes_diarios") as any).insert({
       fecha: toDS(new Date()),
       created_by: user?.id,
       estado: "pendiente",
       obra_id: obraId || null,
       responsable_empresa: user?.nombre || "",
+      direccion, localidad, provincia,
     }).select().single();
+
     if (parte) {
       router.push(`/partes/${parte.id}`);
     } else {
       alert("Error al crear parte: " + (error?.message || ""));
       setCreating(false);
     }
+  };
+
+  const handleObraSelected = (obraId: string) => {
+    setObraSelectModal(false);
+    createDraft(obraId);
   };
 
   const fetchData = useCallback(async () => {
@@ -60,7 +121,6 @@ export default function PartesPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Apply filters
   const filtered = partes.filter((p) => {
     if (filterEstado && p.estado !== filterEstado) return false;
     if (filterObra && p.obra_id !== filterObra) return false;
@@ -70,7 +130,6 @@ export default function PartesPage() {
   });
 
   const hasFilters = filterEstado || filterObra || filterFecha || filterPersona;
-
   const estadoBadge: Record<string, { label: string; class: string; icon: typeof Clock }> = {
     borrador: { label: "Borrador", class: "bg-surface-100 text-surface-600", icon: Clock },
     pendiente: { label: "Pendiente", class: "bg-amber-100 text-amber-700", icon: Clock },
@@ -80,7 +139,6 @@ export default function PartesPage() {
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto animate-fade-in">
-        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center"><ClipboardList className="w-5 h-5 text-orange-600" /></div>
@@ -91,34 +149,31 @@ export default function PartesPage() {
           </button>
         </div>
 
+        {/* Error message */}
+        {noObraError && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm text-amber-800 font-medium">{noObraError}</p>
+              <button onClick={() => setNoObraError("")} className="text-xs text-amber-600 hover:underline mt-1">Cerrar</button>
+            </div>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="card p-3 mb-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-              <option value="">Todos los estados</option>
-              <option value="pendiente">Pendiente</option>
-              <option value="firmado">Firmado</option>
-              <option value="borrador">Borrador</option>
+            <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)} className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+              <option value="">Todos los estados</option><option value="pendiente">Pendiente</option><option value="firmado">Firmado</option><option value="borrador">Borrador</option>
             </select>
-            <select value={filterObra} onChange={(e) => setFilterObra(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-              <option value="">Todas las obras</option>
-              {obras.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+            <select value={filterObra} onChange={(e) => setFilterObra(e.target.value)} className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+              <option value="">Todas las obras</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
             </select>
-            <input type="date" value={filterFecha} onChange={(e) => setFilterFecha(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
-            <select value={filterPersona} onChange={(e) => setFilterPersona(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-              <option value="">Todas las personas</option>
-              {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            <input type="date" value={filterFecha} onChange={(e) => setFilterFecha(e.target.value)} className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+            <select value={filterPersona} onChange={(e) => setFilterPersona(e.target.value)} className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+              <option value="">Todas las personas</option>{personas.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
-            {hasFilters && (
-              <button onClick={() => { setFilterEstado(""); setFilterObra(""); setFilterFecha(""); setFilterPersona(""); }}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
-                <X className="w-3 h-3" /> Limpiar filtros
-              </button>
-            )}
+            {hasFilters && <button onClick={() => { setFilterEstado(""); setFilterObra(""); setFilterFecha(""); setFilterPersona(""); }} className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-600 bg-red-50 rounded-lg hover:bg-red-100"><X className="w-3 h-3" />Limpiar</button>}
           </div>
         </div>
 
@@ -128,8 +183,8 @@ export default function PartesPage() {
         ) : filtered.length === 0 ? (
           <div className="card text-center py-16">
             <ClipboardList className="w-10 h-10 text-surface-300 mx-auto mb-3" />
-            <p className="text-sm text-surface-500">{hasFilters ? "Sin resultados con estos filtros" : "No hay partes"}</p>
-            <button onClick={() => createDraft()} className="text-sm text-brand-600 hover:underline mt-1 inline-block">Crear primer parte</button>
+            <p className="text-sm text-surface-500">{hasFilters ? "Sin resultados" : "No hay partes"}</p>
+            <button onClick={() => createDraft()} className="text-sm text-brand-600 hover:underline mt-1">Crear primer parte</button>
           </div>
         ) : (
           <div className="space-y-2">
@@ -137,43 +192,44 @@ export default function PartesPage() {
               const est = estadoBadge[p.estado] || estadoBadge.pendiente;
               const EstIcon = est.icon;
               return (
-                <Link key={p.id} href={`/partes/${p.id}`}
-                  className="card flex items-center gap-4 p-4 hover:shadow-md hover:border-surface-300 transition-all group">
-                  {/* Obra color bar */}
+                <Link key={p.id} href={`/partes/${p.id}`} className="card flex items-center gap-4 p-4 hover:shadow-md hover:border-surface-300 transition-all group">
                   <div className="w-1.5 h-14 rounded-full shrink-0" style={{ backgroundColor: p.obra?.color || "#D4D4D4" }} />
-                  {/* Main content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="text-base font-display font-bold text-surface-900 group-hover:text-brand-600 transition-colors">
-                        {p.creator?.nombre || "Usuario"}
-                      </span>
-                      <span className="text-base font-medium text-surface-700">
-                        {p.obra?.nombre || "Sin obra"}
-                      </span>
-                      <span className="text-base text-surface-600">
-                        {new Date(p.fecha).toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
-                      </span>
+                    <div className="flex items-center gap-3 mb-1 flex-wrap">
+                      <span className="text-base font-display font-bold text-surface-900 group-hover:text-brand-600">{p.creator?.nombre || "Usuario"}</span>
+                      <span className="text-base font-medium text-surface-700">{p.obra?.nombre || "Sin obra"}</span>
+                      <span className="text-sm text-surface-500">{new Date(p.fecha + "T12:00:00").toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       {p.direccion && <span className="text-xs text-surface-400">{p.direccion}{p.localidad ? `, ${p.localidad}` : ""}</span>}
                       {p.observaciones && <span className="text-xs text-surface-500 truncate max-w-[300px]">{p.observaciones}</span>}
                     </div>
                   </div>
-                  {/* Signatures */}
                   <div className="flex items-center gap-2 shrink-0">
                     {p.firma_data && <span className="text-[10px] text-emerald-600 flex items-center gap-0.5"><FileSignature className="w-3 h-3" />Resp.</span>}
                     {p.firma_cliente && <span className="text-[10px] text-blue-600 flex items-center gap-0.5"><FileSignature className="w-3 h-3" />Cliente</span>}
                   </div>
-                  {/* Estado */}
-                  <span className={cn("badge text-[10px] shrink-0 flex items-center gap-1", est.class)}>
-                    <EstIcon className="w-3 h-3" />{est.label}
-                  </span>
+                  <span className={cn("badge text-[10px] shrink-0 flex items-center gap-1", est.class)}><EstIcon className="w-3 h-3" />{est.label}</span>
                 </Link>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Obra selector modal (when user has multiple obras assigned today) */}
+      <Modal open={obraSelectModal} onClose={() => setObraSelectModal(false)} title="Selecciona la obra" size="sm">
+        <p className="text-sm text-surface-500 mb-4">Hoy tienes varias obras asignadas. ¿En cuál quieres crear el parte?</p>
+        <div className="space-y-2">
+          {obraOptions.map((o) => (
+            <button key={o.id} onClick={() => handleObraSelected(o.id)}
+              className="w-full flex items-center gap-3 p-3 bg-surface-50 rounded-lg border border-surface-200 hover:border-brand-400 hover:bg-brand-50 transition-all text-left">
+              <div className="w-3 h-8 rounded-full shrink-0" style={{ backgroundColor: o.color || "#DC2626" }} />
+              <span className="text-sm font-medium text-surface-900">{o.nombre}</span>
+            </button>
+          ))}
+        </div>
+      </Modal>
     </AppLayout>
   );
 }

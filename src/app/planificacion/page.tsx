@@ -13,7 +13,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  CalendarRange, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
+  CalendarRange, Calendar, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
   Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -232,6 +232,14 @@ export default function PlanificacionPage() {
   const [panelFilter, setPanelFilter] = useState<PanelFilter>("all");
   const [panelOpen, setPanelOpen] = useState(true);
   const [resourceSearch, setResourceSearch] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileDay, setMobileDay] = useState(() => new Date());
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 1024);
+    check(); window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
   const [activeDrag, setActiveDrag] = useState<{ nombre: string; foto_url?: string | null; color?: string; iconType: string } | null>(null);
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
   const [manualModal, setManualModal] = useState<{ obraId: string; obraName: string } | null>(null);
@@ -519,6 +527,108 @@ export default function PlanificacionPage() {
 
   const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
 
+  // Mobile helper
+  const mobileDateStr = toDS(mobileDay);
+  const mobileWeekDays = useMemo(() => {
+    const d = new Date(mobileDay);
+    const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const mon = new Date(d); mon.setDate(diff);
+    return Array.from({ length: 7 }, (_, i) => { const dd = new Date(mon); dd.setDate(mon.getDate() + i); return dd; });
+  }, [mobileDay]);
+
+  if (isMobile) {
+    const DAY_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+    const mobileObras = (() => {
+      const result: { obra: any; recursos: any[] }[] = [];
+      sortedObras.forEach((obra) => {
+        const items = displayGrid[`${obra.id}|${mobileDateStr}`] || [];
+        if (items.length > 0) result.push({ obra, recursos: items.map((a) => ({ ...a, nombre: resInfo[`${a.recurso_tipo}|${a.recurso_id}`]?.nombre || "?", tipo: a.recurso_tipo })) });
+      });
+      return result;
+    })();
+    const assignedPeople = new Set<string>();
+    asignaciones.forEach((a) => { if (a.recurso_tipo === "humano" && a.fecha_inicio <= mobileDateStr && a.fecha_fin >= mobileDateStr) assignedPeople.add(a.recurso_id); });
+    const unassigned = rrhh.filter((r) => (r as any).asignable !== false && !assignedPeople.has(r.id));
+    const isWeekday = mobileDay.getDay() >= 1 && mobileDay.getDay() <= 5;
+
+    return (
+      <AppLayout>
+        <div className="animate-fade-in pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2"><CalendarRange className="w-4 h-4 text-brand-600" /><h1 className="text-base font-display font-bold text-surface-900">Planificación</h1></div>
+            {conflictCells.size > 0 && <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictCells.size}</span>}
+          </div>
+          {/* Week strip */}
+          <div className="flex gap-1 mb-3">
+            {mobileWeekDays.map((d) => {
+              const ds = toDS(d); const isSelected = ds === mobileDateStr; const isToday = ds === toDS(new Date());
+              const hasData = sortedObras.some((o) => (displayGrid[`${o.id}|${ds}`] || []).length > 0);
+              return (
+                <button key={ds} onClick={() => setMobileDay(d)}
+                  className={cn("flex-1 flex flex-col items-center py-2 rounded-xl transition-all",
+                    isSelected ? "bg-brand-500 text-white shadow-md" : isToday ? "bg-brand-50 text-brand-700" : "bg-surface-100 text-surface-600")}>
+                  <span className="text-[9px] font-semibold uppercase">{DAY_SHORT[d.getDay()]}</span>
+                  <span className={cn("text-lg font-bold leading-tight", isSelected ? "text-white" : "")}>{d.getDate()}</span>
+                  {hasData && !isSelected && <div className="w-1 h-1 rounded-full bg-brand-400 mt-0.5" />}
+                </button>
+              );
+            })}
+          </div>
+          {/* Week nav */}
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() - 7); setMobileDay(d); }} className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={() => setMobileDay(new Date())} className="px-3 py-1 text-xs font-medium text-brand-600 bg-brand-50 rounded-lg">Hoy</button>
+            <button onClick={() => { const d = new Date(mobileDay); d.setDate(d.getDate() + 7); setMobileDay(d); }} className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
+          </div>
+          <p className="text-sm font-semibold text-surface-900 mb-3">{mobileDay.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</p>
+          {/* Obras */}
+          {mobileObras.length === 0 ? (
+            <div className="text-center py-12 bg-surface-50 rounded-xl border border-surface-100"><Calendar className="w-8 h-8 text-surface-300 mx-auto mb-2" /><p className="text-sm text-surface-500">Sin asignaciones</p></div>
+          ) : (
+            <div className="space-y-3">
+              {mobileObras.map(({ obra, recursos }) => {
+                const personas = recursos.filter((r) => r.tipo === "humano"); const otros = recursos.filter((r) => r.tipo !== "humano");
+                return (
+                  <div key={obra.id} className="bg-white rounded-xl border border-surface-200 overflow-hidden shadow-sm">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-100" style={{ borderLeftWidth: 4, borderLeftColor: obra.color || "#DC2626" }}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-surface-900 truncate">{obra.nombre}</p>
+                        {(obra as any).estado_custom && <span className="text-[9px] text-white px-1.5 py-0.5 rounded-full inline-block mt-0.5" style={{ backgroundColor: (obra as any).estado_custom?.color }}>{(obra as any).estado_custom?.nombre}</span>}
+                      </div>
+                      <span className="text-[10px] text-surface-400 font-medium">{recursos.length}</span>
+                    </div>
+                    <div className="px-4 py-2.5 space-y-1.5">
+                      {personas.length > 0 && <div><p className="text-[9px] font-semibold text-surface-400 uppercase mb-1">Personas</p><div className="flex flex-wrap gap-1.5">{personas.map((r) => <span key={r.id} className="flex items-center gap-1 px-2 py-1 bg-violet-50 text-violet-700 rounded-lg text-[11px] font-medium"><span className="w-5 h-5 rounded-full bg-violet-200 flex items-center justify-center text-[8px] font-bold">{r.nombre.split(" ").map((w: string) => w[0]).join("").slice(0, 2)}</span>{r.nombre.split(" ")[0]}</span>)}</div></div>}
+                      {otros.length > 0 && <div><p className="text-[9px] font-semibold text-surface-400 uppercase mb-1 mt-1">Recursos</p><div className="flex flex-wrap gap-1.5">{otros.map((r) => { const c: Record<string, string> = { maquinaria: "bg-amber-50 text-amber-700", vehiculo: "bg-teal-50 text-teal-700", material: "bg-emerald-50 text-emerald-700" }; return <span key={r.id} className={cn("px-2 py-1 rounded-lg text-[11px] font-medium", c[r.tipo] || "bg-surface-100")}>{r.nombre}</span>; })}</div></div>}
+                    </div>
+                    <div className="px-4 py-2 bg-surface-50 border-t border-surface-100 flex justify-end">
+                      <button onClick={() => setManualModal({ obraId: obra.id, obraName: obra.nombre })} className="flex items-center gap-1 text-[10px] font-medium text-brand-600"><Plus className="w-3 h-3" />Asignar</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {/* Unassigned */}
+          {isWeekday && unassigned.length > 0 && (
+            <div className="mt-4 bg-amber-50 rounded-xl border border-amber-200 p-4">
+              <p className="text-[10px] font-semibold text-amber-700 uppercase mb-2">Sin asignar ({unassigned.length})</p>
+              <div className="flex flex-wrap gap-1.5">{unassigned.map((r) => <span key={r.id} className="px-2 py-1 bg-white text-amber-800 rounded-lg text-[11px] font-medium border border-amber-200">{r.nombre.split(" ")[0]}</span>)}</div>
+            </div>
+          )}
+        </div>
+        <Modal open={!!manualModal} onClose={() => setManualModal(null)} title={`Asignar: ${manualModal?.obraName || ""}`}>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo</label><select value={manualForm.recurso_tipo} onChange={(e) => setManualForm({ ...manualForm, recurso_tipo: e.target.value as RecursoTipo, recurso_id: "" })} className={ic}><option value="humano">Persona</option><option value="maquinaria">Maquinaria</option><option value="vehiculo">Vehículo</option><option value="material">Material</option></select></div><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Recurso</label><select value={manualForm.recurso_id} onChange={(e) => setManualForm({ ...manualForm, recurso_id: e.target.value })} className={ic}><option value="">Seleccionar...</option>{getResourceList(manualForm.recurso_tipo).map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}</select></div></div>
+            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Desde</label><input type="date" value={manualForm.fecha_inicio || mobileDateStr} onChange={(e) => setManualForm({ ...manualForm, fecha_inicio: e.target.value })} className={ic} /></div><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Hasta</label><input type="date" value={manualForm.fecha_fin || mobileDateStr} onChange={(e) => setManualForm({ ...manualForm, fecha_fin: e.target.value })} className={ic} /></div></div>
+            <button onClick={handleManualAssign} disabled={manualSaving || !manualForm.recurso_id || !manualForm.fecha_inicio || !manualForm.fecha_fin} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{manualSaving && <Loader2 className="w-4 h-4 animate-spin" />}Asignar</button>
+          </div>
+        </Modal>
+      </AppLayout>
+    );
+  }
+
+  // Desktop view
   return (
     <AppLayout>
       <DndContext sensors={sensors} collisionDetection={customCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
