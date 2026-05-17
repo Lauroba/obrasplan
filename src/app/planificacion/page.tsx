@@ -14,7 +14,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import {
   CalendarRange, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
-  Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2
+  Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2, Search
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
@@ -232,6 +232,7 @@ export default function PlanificacionPage() {
   const [panelFilter, setPanelFilter] = useState<PanelFilter>("all");
   const [panelOpen, setPanelOpen] = useState(true);
   const [resourceSearch, setResourceSearch] = useState("");
+  const [obraSearch, setObraSearch] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => new Date());
 
@@ -335,7 +336,8 @@ export default function PlanificacionPage() {
   const conAsig = filteredObras.filter((o) => !flagIds.has(o.id) && obrasConAsignacion.has(o.id)).sort(alpha);
   const aPlanificar = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
   const resto = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
-  const sortedObras = [...flagObras, ...conAsig, ...aPlanificar, ...resto];
+  const sortedObrasAll = [...flagObras, ...conAsig, ...aPlanificar, ...resto];
+  const sortedObras = obraSearch ? sortedObrasAll.filter((o) => o.nombre.toLowerCase().includes(obraSearch.toLowerCase())) : sortedObrasAll;
   const obraIds = sortedObras.map((o) => o.id);
 
   // Virtual assignments for special obras (visual only)
@@ -344,8 +346,8 @@ export default function PlanificacionPage() {
     const g: Record<string, Asignacion[]> = {};
     Object.entries(assignGrid).forEach(([k, v]) => { g[k] = [...v]; });
 
-    const rrhhSinAsignarObra = sortedObras.find((o) => (o as any).flag_rrhh_sin_asignar);
-    const vehSinAsignarObra = sortedObras.find((o) => (o as any).flag_vehiculo_sin_asignar);
+    const rrhhSinAsignarObra = sortedObrasAll.find((o) => (o as any).flag_rrhh_sin_asignar);
+    const vehSinAsignarObra = sortedObrasAll.find((o) => (o as any).flag_vehiculo_sin_asignar);
     if (!rrhhSinAsignarObra && !vehSinAsignarObra) return g;
 
     const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; });
@@ -377,7 +379,7 @@ export default function PlanificacionPage() {
     }
 
     return g;
-  }, [assignGrid, sortedObras, rrhh, vehList, dateStrs, asignaciones]);
+  }, [assignGrid, sortedObrasAll, rrhh, vehList, dateStrs, asignaciones]);
   // obraIds computed above with sortedObras
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
@@ -650,6 +652,11 @@ export default function PlanificacionPage() {
             </div>
             <div className="flex items-center gap-2">
               {conflictCells.size > 0 && <span className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictCells.size}</span>}
+              <div className="relative">
+                <input type="text" value={obraSearch} onChange={(e) => setObraSearch(e.target.value)} placeholder="Filtrar obra..." className="w-32 px-2 py-1 pl-7 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:w-44 transition-all" />
+                <Search className="w-3 h-3 text-surface-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                {obraSearch && <button onClick={() => setObraSearch("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600"><X className="w-3 h-3" /></button>}
+              </div>
               <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} className="px-2 py-1 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 focus:outline-none">
                 <option value="">Todos estados</option>{estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
               </select>
