@@ -19,6 +19,24 @@ export async function POST(req: NextRequest) {
       ? await supabase.from("checklist_items").select("*").in("checklist_id", clIds).order("orden")
       : { data: [] };
 
+    // Fetch assignments for date range and RRHH
+    const { data: asignaciones } = await supabase.from("asignaciones").select("fecha_inicio, fecha_fin, recurso_tipo, recurso_id").eq("obra_id", obraId);
+    let fechaInicio = "", fechaFin = "";
+    if (asignaciones && asignaciones.length > 0) {
+      const fechas = asignaciones.flatMap((a: any) => [a.fecha_inicio, a.fecha_fin]).filter(Boolean).sort();
+      fechaInicio = fechas[0] || "";
+      fechaFin = fechas[fechas.length - 1] || "";
+    }
+    const formatFecha = (f: string) => f ? new Date(f + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "—";
+
+    // Get unique RRHH assigned
+    const rrhhIds = Array.from(new Set((asignaciones || []).filter((a: any) => a.recurso_tipo === "humano").map((a: any) => a.recurso_id)));
+    let rrhhNames: string[] = [];
+    if (rrhhIds.length > 0) {
+      const { data: rrhhData } = await supabase.from("recursos_humanos").select("nombre").in("id", rrhhIds).order("nombre");
+      rrhhNames = (rrhhData || []).map((r: any) => r.nombre);
+    }
+
     // Landscape A4, tight margins
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const w = doc.internal.pageSize.getWidth(); // 297
@@ -47,9 +65,33 @@ export async function POST(req: NextRequest) {
       doc.setFontSize(24); doc.setFont("helvetica", "bold"); doc.setTextColor(0, 0, 0);
       doc.text(obra.nombre || "", m + 22, y + 13);
 
-      // Date top right
-      doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
-      doc.text(new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }), w - m, y + 4, { align: "right" });
+      // Dates - right of obra name
+      const dateX = 170;
+      doc.setFontSize(6); doc.setFont("helvetica", "bold"); doc.setTextColor(140, 140, 140);
+      doc.text("INICIO", dateX, y + 3);
+      doc.text("FIN", dateX, y + 10);
+      doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(60, 60, 60);
+      doc.text(formatFecha(fechaInicio), dateX + 12, y + 3);
+      doc.text(formatFecha(fechaFin), dateX + 12, y + 10);
+
+      // RRHH - far right
+      const rrhhX = 220;
+      doc.setFontSize(6); doc.setFont("helvetica", "bold"); doc.setTextColor(140, 140, 140);
+      doc.text("EQUIPO ASIGNADO", rrhhX, y + 2);
+      doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30);
+      if (rrhhNames.length > 0) {
+        const maxLines = 3;
+        for (let i = 0; i < Math.min(rrhhNames.length, maxLines); i++) {
+          doc.text(rrhhNames[i], rrhhX, y + 6 + i * 4);
+        }
+        if (rrhhNames.length > maxLines) {
+          doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(120, 120, 120);
+          doc.text(`+${rrhhNames.length - maxLines} más`, rrhhX, y + 6 + maxLines * 4);
+        }
+      } else {
+        doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+        doc.text("Sin asignar", rrhhX, y + 6);
+      }
 
       y += 17;
 
