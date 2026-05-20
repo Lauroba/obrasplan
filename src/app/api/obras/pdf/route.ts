@@ -4,10 +4,6 @@ import { LOGO_BASE64 } from "@/lib/logo";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 
-declare module "jspdf" {
-  interface jsPDF { autoTable: (options: any) => jsPDF; lastAutoTable: { finalY: number }; }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { obraId } = await req.json();
@@ -23,156 +19,182 @@ export async function POST(req: NextRequest) {
       ? await supabase.from("checklist_items").select("*").in("checklist_id", clIds).order("orden")
       : { data: [] };
 
-    // Landscape A4, small margins
+    // Landscape A4, tight margins
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const w = doc.internal.pageSize.getWidth(); // ~297
-    const h = doc.internal.pageSize.getHeight(); // ~210
-    const m = 10; // margin
-    const contentW = w - m * 2; // ~277
-    let y = m;
+    const w = doc.internal.pageSize.getWidth(); // 297
+    const h = doc.internal.pageSize.getHeight(); // 210
+    const m = 8; // margin
+    const contentW = w - m * 2; // 281
+    const colW = contentW / 2; // 140.5
+    const checkSize = 8; // big checkbox
+    const rowH = 14; // big row height
+    const textSize = 12; // big text
+    const textOffset = checkSize + 4;
+    const maxTextW = colW - textOffset - 4;
 
-    // ---- HEADER ----
-    // Small logo
-    try { doc.addImage(`data:image/jpeg;base64,${LOGO_BASE64}`, "JPEG", m, y, 20, 14); } catch {}
+    let pageNum = 0;
 
-    // "INFORME DE OBRA" small
-    doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
-    doc.text("INFORME DE OBRA", m + 24, y + 4);
+    const drawHeader = () => {
+      let y = m;
+      // Small logo
+      try { doc.addImage(`data:image/jpeg;base64,${LOGO_BASE64}`, "JPEG", m, y, 18, 13); } catch {}
 
-    // Obra name BIG
-    doc.setFontSize(22); doc.setFont("helvetica", "bold"); doc.setTextColor(0, 0, 0);
-    const obraName = obra.nombre || "Sin nombre";
-    doc.text(obraName, m + 24, y + 13);
+      // "INFORME DE OBRA" small
+      doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+      doc.text("INFORME DE OBRA", m + 22, y + 4);
 
-    // Date top right
-    doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
-    doc.text(new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }), w - m, y + 4, { align: "right" });
+      // Obra name BIG
+      doc.setFontSize(24); doc.setFont("helvetica", "bold"); doc.setTextColor(0, 0, 0);
+      doc.text(obra.nombre || "", m + 22, y + 13);
 
-    y += 18;
+      // Date top right
+      doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+      doc.text(new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }), w - m, y + 4, { align: "right" });
 
-    // Thin red line
-    doc.setDrawColor(220, 38, 38); doc.setLineWidth(0.5);
-    doc.line(m, y, w - m, y);
-    y += 4;
+      y += 17;
 
-    // ---- INFO ROW ----
-    const infoCol = contentW / 4;
-    const drawInfo = (label: string, value: string, x: number) => {
-      doc.setFontSize(6); doc.setFont("helvetica", "bold"); doc.setTextColor(140, 140, 140);
-      doc.text(label, x, y);
-      doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(0, 0, 0);
-      doc.text(value || "—", x, y + 4);
+      // Red line
+      doc.setDrawColor(220, 38, 38); doc.setLineWidth(0.5);
+      doc.line(m, y, w - m, y);
+      y += 3;
+
+      // Info row
+      const infoCol = contentW / 4;
+      const drawInfo = (label: string, value: string, x: number) => {
+        doc.setFontSize(6); doc.setFont("helvetica", "bold"); doc.setTextColor(140, 140, 140);
+        doc.text(label, x, y);
+        doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(0, 0, 0);
+        const val = value || "—";
+        doc.text(val.length > 40 ? val.substring(0, 40) + "..." : val, x, y + 4);
+      };
+
+      drawInfo("CLIENTE", obra.cliente?.nombre || "—", m);
+      drawInfo("DIRECCIÓN", [obra.direccion, obra.localidad, obra.provincia].filter(Boolean).join(", ") || "—", m + infoCol);
+      drawInfo("CONTACTO", obra.contacto_obra_nombre || obra.cliente?.contacto || "—", m + infoCol * 2);
+      drawInfo("TELÉFONO", obra.contacto_obra_telefono || obra.cliente?.telefono || "—", m + infoCol * 3);
+
+      y += 8;
+
+      // Gray line
+      doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.2);
+      doc.line(m, y, w - m, y);
+      y += 3;
+
+      return y;
     };
 
-    drawInfo("CLIENTE", obra.cliente?.nombre || "—", m);
-    drawInfo("DIRECCIÓN", [obra.direccion, obra.localidad, obra.provincia].filter(Boolean).join(", ") || "—", m + infoCol);
-    drawInfo("CONTACTO", obra.contacto_obra_nombre || obra.cliente?.contacto || "—", m + infoCol * 2);
-    drawInfo("TELÉFONO", obra.contacto_obra_telefono || obra.cliente?.telefono || "—", m + infoCol * 3);
+    const drawFooter = () => {
+      doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 180, 180);
+      doc.text(`${obra.nombre} — LOYNEK Soluciones Técnicas`, m, h - 4);
+      doc.text(`${doc.getNumberOfPages()}`, w - m, h - 4, { align: "right" });
+    };
 
-    y += 10;
+    const startY = drawHeader();
+    let y = startY;
+    const bottomLimit = h - 10;
 
-    // Thin gray line
-    doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.2);
-    doc.line(m, y, w - m, y);
-    y += 4;
-
-    // ---- CHECKLISTS ----
-    const colW = contentW / 2; // Each column width
-    const checkSize = 5; // Checkbox size in mm
-    const rowH = 7; // Row height
-    const textOffset = checkSize + 3; // Text offset after checkbox
-    const maxTextW = colW - textOffset - 4; // Max text width
+    // Calculate rows that fit per page (after header)
+    const rowsFirstPage = Math.floor((bottomLimit - startY - 10) / rowH); // subtract checklist title space
+    const rowsNextPage = Math.floor((bottomLimit - m - 8) / rowH);
 
     if (!checklists || checklists.length === 0) {
-      doc.setFontSize(10); doc.setFont("helvetica", "italic"); doc.setTextColor(150, 150, 150);
-      doc.text("Sin checklists", w / 2, y + 10, { align: "center" });
+      doc.setFontSize(12); doc.setFont("helvetica", "italic"); doc.setTextColor(150, 150, 150);
+      doc.text("Sin checklists", w / 2, y + 20, { align: "center" });
     } else {
-      for (const cl of checklists) {
+      for (let clIdx = 0; clIdx < checklists.length; clIdx++) {
+        const cl = checklists[clIdx];
         const clItems = (items || []).filter((i: any) => i.checklist_id === cl.id);
         if (clItems.length === 0) continue;
 
-        // Check if we need a new page
-        if (y > h - 25) { doc.addPage(); y = m; }
+        // If this is not the first checklist and we don't have much space, new page
+        if (clIdx > 0 && y + rowH * 3 > bottomLimit) {
+          drawFooter();
+          doc.addPage();
+          y = drawHeader();
+        }
 
         // Checklist title
-        doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.setTextColor(220, 38, 38);
-        doc.text(cl.titulo.toUpperCase(), m, y + 1);
-        doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
-        doc.text(`${clItems.length} items`, w - m, y + 1, { align: "right" });
-        y += 5;
+        doc.setFontSize(13); doc.setFont("helvetica", "bold"); doc.setTextColor(220, 38, 38);
+        doc.text(cl.titulo.toUpperCase(), m, y + 2);
+        doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+        doc.text(`${clItems.length} items`, w - m, y + 2, { align: "right" });
+        y += 6;
 
-        // Light gray background for header
-        doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.1);
+        // Thin line under title
+        doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.1);
         doc.line(m, y, w - m, y);
         y += 2;
 
-        // Items in 2 columns
+        // Split into 2 columns
         const half = Math.ceil(clItems.length / 2);
-        const col1Items = clItems.slice(0, half);
-        const col2Items = clItems.slice(half);
-        const maxRows = Math.max(col1Items.length, col2Items.length);
+        const col1 = clItems.slice(0, half);
+        const col2 = clItems.slice(half);
+        const maxRows = Math.max(col1.length, col2.length);
 
         for (let row = 0; row < maxRows; row++) {
-          // Check if we need a new page
-          if (y + rowH > h - 12) {
-            doc.addPage(); y = m;
-            // Repeat checklist title on new page
+          // New page if needed
+          if (y + rowH > bottomLimit) {
+            drawFooter();
+            doc.addPage();
+            y = m + 2;
+            // Mini header on continuation page
             doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(220, 38, 38);
-            doc.text(cl.titulo.toUpperCase() + " (cont.)", m, y + 1);
-            y += 5;
+            doc.text(cl.titulo.toUpperCase() + " (cont.)", m, y + 2);
+            y += 7;
           }
 
-          // Alternate row background
+          // Alternating row bg
           if (row % 2 === 0) {
-            doc.setFillColor(250, 250, 250);
-            doc.rect(m, y - 1, contentW, rowH, "F");
+            doc.setFillColor(248, 248, 248);
+            doc.rect(m, y - 1.5, contentW, rowH, "F");
           }
 
           // Column 1
-          if (col1Items[row]) {
-            const item = col1Items[row];
-            const x = m + 1;
+          if (col1[row]) {
+            const x = m + 2;
+            const centerY = y + (rowH - checkSize) / 2;
             // Checkbox
-            doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.3);
+            doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.4);
             doc.setFillColor(255, 255, 255);
-            doc.rect(x, y, checkSize, checkSize);
+            doc.roundedRect(x, centerY, checkSize, checkSize, 1, 1);
             // Text
-            doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(30, 30, 30);
-            const text1 = doc.splitTextToSize(item.texto, maxTextW);
-            doc.text(text1[0], x + textOffset, y + 3.5);
+            doc.setFontSize(textSize); doc.setFont("helvetica", "normal"); doc.setTextColor(20, 20, 20);
+            const t1 = doc.splitTextToSize(col1[row].texto, maxTextW);
+            doc.text(t1[0], x + textOffset, y + rowH / 2 + 1);
           }
 
+          // Column separator
+          doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
+          doc.line(m + colW, y - 1.5, m + colW, y + rowH - 1.5);
+
           // Column 2
-          if (col2Items[row]) {
-            const item = col2Items[row];
-            const x = m + colW + 1;
-            // Separator line between columns
-            doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.1);
-            doc.line(m + colW, y - 1, m + colW, y + rowH - 1);
+          if (col2[row]) {
+            const x = m + colW + 2;
+            const centerY = y + (rowH - checkSize) / 2;
             // Checkbox
-            doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.3);
+            doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.4);
             doc.setFillColor(255, 255, 255);
-            doc.rect(x, y, checkSize, checkSize);
+            doc.roundedRect(x, centerY, checkSize, checkSize, 1, 1);
             // Text
-            doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(30, 30, 30);
-            const text2 = doc.splitTextToSize(item.texto, maxTextW);
-            doc.text(text2[0], x + textOffset, y + 3.5);
+            doc.setFontSize(textSize); doc.setFont("helvetica", "normal"); doc.setTextColor(20, 20, 20);
+            const t2 = doc.splitTextToSize(col2[row].texto, maxTextW);
+            doc.text(t2[0], x + textOffset, y + rowH / 2 + 1);
           }
 
           y += rowH;
         }
 
-        y += 4; // Space between checklists
+        y += 5; // Space between checklists
       }
     }
 
-    // ---- FOOTER ----
-    const pageCount = doc.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
+    // Final footer on all pages
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 180, 180);
-      doc.text(`${obra.nombre} — LOYNEK Soluciones Técnicas`, m, h - 5);
-      doc.text(`${i}/${pageCount}`, w - m, h - 5, { align: "right" });
+      doc.text(`${obra.nombre} — LOYNEK Soluciones Técnicas`, m, h - 4);
+      doc.text(`${i}/${totalPages}`, w - m, h - 4, { align: "right" });
     }
 
     const pdfBase64 = doc.output("datauristring").split(",")[1];
