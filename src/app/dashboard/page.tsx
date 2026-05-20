@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   const [obrasActivas, setObrasActivas] = useState<any[]>([]);
   const [partesSinFirma, setPartesSinFirma] = useState<any[]>([]);
+  const [checklistItems, setChecklistItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [taskFilter, setTaskFilter] = useState<"mine" | "all">("mine");
 
@@ -56,6 +57,18 @@ export default function DashboardPage() {
       setTareas((tareasR.data || []) as any[]);
       setObrasActivas((obrasR.data || []) as any[]);
       setPartesSinFirma((partesR.data || []) as any[]);
+
+      // Fetch checklist items assigned to current user
+      if (user?.recurso_id) {
+        const { data: clItems } = await supabase.from("checklist_items")
+          .select("*, checklist:checklists(titulo, obra_id, obra:obras(nombre, color))")
+          .eq("asignado_a", user.recurso_id)
+          .eq("completado", false)
+          .order("prioridad")
+          .limit(20);
+        setChecklistItems(clItems || []);
+      }
+
       setAllAsignaciones(asigR.data || []);
 
       const names: Record<string, string> = {};
@@ -198,6 +211,38 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Checklist items pendientes */}
+          {checklistItems.length > 0 && (
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-surface-100">
+              <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-violet-500" />Mis items de checklist</h2>
+              <span className="text-xs text-surface-400">{checklistItems.length} pendientes</span>
+            </div>
+            <div className="divide-y divide-surface-100 max-h-60 overflow-y-auto">
+              {checklistItems.map((item) => {
+                const pColors: Record<string, string> = { alta: "bg-red-100 text-red-700", media: "bg-amber-100 text-amber-700", baja: "bg-emerald-100 text-emerald-700" };
+                return (
+                  <div key={item.id} className="flex items-start gap-2.5 p-3 hover:bg-surface-50">
+                    <button onClick={async () => {
+                      const supabase = createClient();
+                      await (supabase.from("checklist_items") as any).update({ completado: true, completado_at: new Date().toISOString(), completado_por: user?.id }).eq("id", item.id);
+                      setChecklistItems((prev) => prev.filter((i) => i.id !== item.id));
+                    }} className="mt-0.5 w-4 h-4 rounded border-2 border-surface-300 hover:border-emerald-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-surface-900">{item.texto}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-surface-400">{item.checklist?.obra?.nombre || "—"}</span>
+                        <span className="text-[10px] text-violet-500">{item.checklist?.titulo || ""}</span>
+                        <span className={cn("badge text-[9px]", pColors[item.prioridad])}>{item.prioridad}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          )}
 
           {/* Conflictos */}
           <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">

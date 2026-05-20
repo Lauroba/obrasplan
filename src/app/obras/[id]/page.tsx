@@ -12,12 +12,13 @@ import {
   Building2, ArrowLeft, MapPin, Users, Wrench, Truck, ClipboardList, FileText,
   Loader2, Plus, Trash2, CheckCircle2, Clock, ListTodo, Upload,
   File, Image as ImageIcon, Save, MessageSquare, ExternalLink, Pencil,
-  FileSignature, Archive, Eye, AlertTriangle
+  FileSignature, Archive, Eye, AlertTriangle, Download
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
+import ChecklistPanel from "@/components/obras/ChecklistPanel";
 
-type Tab = "general" | "recursos" | "tareas" | "partes" | "documentos";
+type Tab = "general" | "recursos" | "tareas" | "partes" | "documentos" | "checklists";
 
 export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +44,7 @@ export default function ObraDetallePage() {
   const [observaciones, setObservaciones] = useState("");
   const [obsSaving, setObsSaving] = useState(false);
   const [obsChanged, setObsChanged] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [taskModal, setTaskModal] = useState(false);
   const [taskForm, setTaskForm] = useState({ descripcion: "", tipo_tarea_id: "", prioridad: "media" as any, fecha_limite: "", asignado_a: "" });
   const [taskSaving, setTaskSaving] = useState(false);
@@ -116,6 +118,7 @@ export default function ObraDetallePage() {
     { id: "tareas", label: "Tareas", icon: ListTodo, count: tareas.filter((t) => t.estado === "pendiente").length },
     { id: "partes", label: "Partes", icon: ClipboardList, count: partes.length },
     { id: "documentos", label: "Documentos", icon: FileText, count: documentos.length },
+    { id: "checklists", label: "Checklists", icon: CheckCircle2 },
   ];
   const humanos = asignaciones.filter((a) => a.recurso_tipo === "humano");
   const maquinas = asignaciones.filter((a) => a.recurso_tipo === "maquinaria");
@@ -147,6 +150,18 @@ export default function ObraDetallePage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button onClick={async () => {
+              setDownloadingPdf(true);
+              try {
+                const res = await fetch("/api/obras/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ obraId: id }) });
+                const data = await res.json();
+                if (data.pdf) { const link = document.createElement("a"); link.href = `data:application/pdf;base64,${data.pdf}`; link.download = data.filename; link.click(); }
+                else alert("Error: " + (data.error || ""));
+              } catch (err: any) { alert("Error: " + err.message); }
+              setDownloadingPdf(false);
+            }} disabled={downloadingPdf} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-700 bg-violet-50 rounded-lg hover:bg-violet-100 disabled:opacity-60">
+              {downloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} PDF
+            </button>
             <button onClick={handleArchive} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg", obra.archivada ? "text-blue-700 bg-blue-50 hover:bg-blue-100" : "text-amber-700 bg-amber-50 hover:bg-amber-100")}>
               {obra.archivada ? <Eye className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
               {obra.archivada ? "Desarchivar" : "Archivar"}
@@ -372,6 +387,10 @@ export default function ObraDetallePage() {
               })}</div>
             )}
           </div>
+        )}
+
+        {tab === "checklists" && (
+          <ChecklistPanel obraId={id} rrhh={rrhh.map((r) => ({ id: r.id, nombre: r.nombre }))} />
         )}
       </div>
 
