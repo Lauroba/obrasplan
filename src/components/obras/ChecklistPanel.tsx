@@ -50,6 +50,10 @@ export default function ChecklistPanel({ obraId, rrhh, readOnly }: Props) {
   const [addingChecklist, setAddingChecklist] = useState(false);
   const [newItemText, setNewItemText] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [editingClTitle, setEditingClTitle] = useState<string | null>(null);
+  const [editingTitleText, setEditingTitleText] = useState("");
 
   const fetchChecklists = useCallback(async () => {
     const { data: cls } = await supabase.from("checklists").select("*").eq("obra_id", obraId).order("orden");
@@ -134,6 +138,25 @@ export default function ChecklistPanel({ obraId, rrhh, readOnly }: Props) {
     })));
   };
 
+  const saveItemText = async (itemId: string) => {
+    const trimmed = editingText.trim();
+    if (!trimmed) { setEditingItemId(null); return; }
+    await (supabase.from("checklist_items") as any).update({ texto: trimmed }).eq("id", itemId);
+    setChecklists((prev) => prev.map((cl) => ({
+      ...cl,
+      items: cl.items.map((i) => i.id === itemId ? { ...i, texto: trimmed } : i),
+    })));
+    setEditingItemId(null);
+  };
+
+  const saveClTitle = async (clId: string) => {
+    const trimmed = editingTitleText.trim();
+    if (!trimmed) { setEditingClTitle(null); return; }
+    await (supabase.from("checklists") as any).update({ titulo: trimmed }).eq("id", clId);
+    setChecklists((prev) => prev.map((cl) => cl.id === clId ? { ...cl, titulo: trimmed } : cl));
+    setEditingClTitle(null);
+  };
+
   const getProgress = (items: ChecklistItem[]) => {
     if (items.length === 0) return 0;
     return Math.round((items.filter((i) => i.completado).length / items.length) * 100);
@@ -163,7 +186,15 @@ export default function ChecklistPanel({ obraId, rrhh, readOnly }: Props) {
               <button onClick={() => setExpanded((p) => ({ ...p, [cl.id]: !isExpanded }))} className="text-surface-400 hover:text-surface-600">
                 {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               </button>
-              <h3 className="text-sm font-semibold text-surface-900 flex-1">{cl.titulo}</h3>
+              {!readOnly && editingClTitle === cl.id ? (
+                <input type="text" value={editingTitleText} onChange={(e) => setEditingTitleText(e.target.value)}
+                  onBlur={() => saveClTitle(cl.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveClTitle(cl.id); if (e.key === "Escape") setEditingClTitle(null); }}
+                  autoFocus className="flex-1 text-sm font-semibold px-2 py-0.5 bg-white border border-brand-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+              ) : (
+                <h3 onClick={() => { if (!readOnly) { setEditingClTitle(cl.id); setEditingTitleText(cl.titulo); } }}
+                  className={cn("text-sm font-semibold flex-1", readOnly ? "text-surface-900" : "text-surface-900 cursor-pointer hover:text-brand-600")}>{cl.titulo}</h3>
+              )}
               <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", status.class)}>{status.label}</span>
               <span className="text-[11px] text-surface-500 font-medium">{completed}/{total}</span>
               {!readOnly && (
@@ -206,7 +237,15 @@ export default function ChecklistPanel({ obraId, rrhh, readOnly }: Props) {
                           </button>
                           {/* Content */}
                           <div className="flex-1 min-w-0">
-                            <p className={cn("text-sm", item.completado ? "line-through text-surface-400" : "text-surface-900")}>{item.texto}</p>
+                            {!readOnly && editingItemId === item.id ? (
+                              <input type="text" value={editingText} onChange={(e) => setEditingText(e.target.value)}
+                                onBlur={() => saveItemText(item.id)}
+                                onKeyDown={(e) => { if (e.key === "Enter") saveItemText(item.id); if (e.key === "Escape") setEditingItemId(null); }}
+                                autoFocus className="w-full text-sm px-2 py-1 bg-white border border-brand-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+                            ) : (
+                              <p onClick={() => { if (!readOnly) { setEditingItemId(item.id); setEditingText(item.texto); } }}
+                                className={cn("text-sm cursor-pointer", item.completado ? "line-through text-surface-400" : "text-surface-900 hover:text-brand-600")}>{item.texto}</p>
+                            )}
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                               {/* Priority */}
                               {!readOnly ? (
