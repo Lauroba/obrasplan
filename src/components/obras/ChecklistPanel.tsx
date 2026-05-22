@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
 import {
-  Plus, Trash2, ChevronDown, ChevronRight, GripVertical,
+  Plus, Trash2, ChevronDown, ChevronRight, ChevronUp, GripVertical,
   Check, Circle, Loader2, X, User, Flag,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -120,6 +120,26 @@ export default function ChecklistPanel({ obraId, rrhh, readOnly }: Props) {
   const deleteItem = async (itemId: string) => {
     await (supabase.from("checklist_items") as any).delete().eq("id", itemId);
     fetchChecklists();
+  };
+
+  const moveItem = async (clId: string, itemId: string, direction: "up" | "down") => {
+    const cl = checklists.find((c) => c.id === clId);
+    if (!cl) return;
+    const idx = cl.items.findIndex((i) => i.id === itemId);
+    if (idx < 0) return;
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= cl.items.length) return;
+
+    const newItems = [...cl.items];
+    [newItems[idx], newItems[swapIdx]] = [newItems[swapIdx], newItems[idx]];
+
+    // Update local state immediately
+    setChecklists((prev) => prev.map((c) => c.id === clId ? { ...c, items: newItems } : c));
+
+    // Save new order to DB
+    await Promise.all(newItems.map((item, i) =>
+      (supabase.from("checklist_items") as any).update({ orden: i }).eq("id", item.id)
+    ));
   };
 
   const updateItemPriority = async (itemId: string, prioridad: string) => {
@@ -270,11 +290,23 @@ export default function ChecklistPanel({ obraId, rrhh, readOnly }: Props) {
                               ) : null}
                             </div>
                           </div>
-                          {/* Delete */}
+                          {/* Actions */}
                           {!readOnly && (
-                            <button onClick={() => deleteItem(item.id)} className="p-1 text-surface-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                              <button onClick={() => moveItem(cl.id, item.id, "up")}
+                                disabled={cl.items.indexOf(item) === 0}
+                                className="p-1 text-surface-300 hover:text-surface-600 disabled:opacity-30 disabled:cursor-default">
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => moveItem(cl.id, item.id, "down")}
+                                disabled={cl.items.indexOf(item) === cl.items.length - 1}
+                                className="p-1 text-surface-300 hover:text-surface-600 disabled:opacity-30 disabled:cursor-default">
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => deleteItem(item.id)} className="p-1 text-surface-300 hover:text-red-500">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           )}
                         </div>
                       );
