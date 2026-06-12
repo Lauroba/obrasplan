@@ -134,12 +134,13 @@ const RrhhCell = memo(function RrhhCell({ recursoId, dateStr, personAssignments,
 });
 
 // ---- Sortable Row for Vista Obras ----
-function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictCells, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday }: {
+function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictCells, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved }: {
   obra: Obra; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
   obraRange?: { min: string; max: string }; resInfo: Record<string, ResourceInfo>;
   conflictCells: Set<string>; onRemove: (id: string) => void; onArchive: (id: string, v: boolean) => void;
   onAddManual: (obraId: string, obraName: string) => void; onChangeEstado: (obraId: string, estadoId: string) => void;
   estados: EstadoObra[]; dw: number; isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
+  notas: Record<string, any>; onNoteSaved: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: obra.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
@@ -174,7 +175,7 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
                 onRemove={onRemove} dw={dw} hasConflict={conflictCells.has(`${obra.id}|${ds}`)} />
               <div className="absolute top-0 right-0.5 z-10">
-                <CellNote obraId={obra.id} fecha={ds} nota={notas[`${obra.id}|${ds}`] || null} onSaved={fetchData} />
+                <CellNote obraId={obra.id} fecha={ds} nota={notas[`${obra.id}|${ds}`] || null} onSaved={onNoteSaved} />
               </div>
             </div>
           </div>
@@ -725,7 +726,8 @@ export default function PlanificacionPage() {
                           conflictCells={conflictCells} onRemove={handleRemove} onArchive={handleArchive}
                           onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
                           onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
-                          estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn} />
+                          estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
+                          notas={notas} onNoteSaved={fetchData} />
                       ))}
                     </SortableContext>
                   )}
