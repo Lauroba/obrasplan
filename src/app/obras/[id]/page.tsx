@@ -110,9 +110,11 @@ export default function ObraDetallePage() {
     if (!files || files.length === 0) return;
     setUploading(true);
     let errors: string[] = [];
+    const sanitize = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const path = `obras/${id}/${Date.now()}_${file.name}`;
+      const safeName = sanitize(file.name);
+      const path = `obras/${id}/${Date.now()}_${safeName}`;
       const { error: uploadErr } = await supabase.storage.from("documentos").upload(path, file);
       if (uploadErr) { errors.push(`${file.name}: ${uploadErr.message}`); continue; }
       const { error: insertErr } = await (supabase.from("documentos") as any).insert({
