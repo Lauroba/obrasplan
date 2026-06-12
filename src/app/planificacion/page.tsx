@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
+import CellNote from "@/components/planificacion/CellNote";
 
 type PlanView = "obras" | "rrhh";
 type ViewMode = "week" | "month" | "year";
@@ -169,9 +170,12 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
           <div key={ds} style={{ width: dw, minWidth: dw }} className={cn("border-r border-surface-100 relative",
             isToday(day) ? "bg-brand-50/30" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             {inRange && <div className="absolute inset-0" style={{ backgroundColor: `${obra.color || "#DC2626"}08` }} />}
-            <div className="relative h-full min-h-[44px]">
+            <div className="relative h-full min-h-[44px] group">
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
                 onRemove={onRemove} dw={dw} hasConflict={conflictCells.has(`${obra.id}|${ds}`)} />
+              <div className="absolute top-0 right-0.5 z-10">
+                <CellNote obraId={obra.id} fecha={ds} nota={notas[`${obra.id}|${ds}`] || null} onSaved={fetchData} />
+              </div>
             </div>
           </div>
         );
@@ -233,6 +237,7 @@ export default function PlanificacionPage() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [resourceSearch, setResourceSearch] = useState("");
   const [obraSearch, setObraSearch] = useState("");
+  const [notas, setNotas] = useState<Record<string, any>>({});
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => new Date());
 
@@ -262,6 +267,11 @@ export default function PlanificacionPage() {
     setObras((oR.data as Obra[]) || []); setAsignaciones(aR.data || []);
     setRrhh(hR.data || []); setMaqList(mR.data || []); setVehList(vR.data || []); setMatList(tR.data || []);
     setEstados(eR.data || []); setLoading(false);
+    // Fetch notas
+    const { data: notasData } = await supabase.from("planificador_notas").select("*, creator:users!planificador_notas_created_by_fkey(nombre)");
+    const notasMap: Record<string, any> = {};
+    (notasData || []).forEach((n: any) => { notasMap[`${n.obra_id}|${n.fecha}`] = { ...n, creator_nombre: n.creator?.nombre }; });
+    setNotas(notasMap);
   }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -331,55 +341,60 @@ export default function PlanificacionPage() {
   });
   const filteredObras = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
   const alpha = (a: any, b: any) => a.nombre.localeCompare(b.nombre, "es");
-  const flagObras = filteredObras.filter((o) => (o as any).flag_rrhh_sin_asignar || (o as any).flag_vehiculo_sin_asignar).sort(alpha);
-  const flagIds = new Set(flagObras.map((o) => o.id));
+
+  // Find flag obras and merge into one
+  const rrhhFlagObra = filteredObras.find((o) => (o as any).flag_rrhh_sin_asignar);
+  const vehFlagObra = filteredObras.find((o) => (o as any).flag_vehiculo_sin_asignar);
+  const primaryFlagObra = rrhhFlagObra || vehFlagObra; // Use RRHH obra as the merged line, or vehicle if no RRHH
+  const flagIds = new Set<string>();
+  if (rrhhFlagObra) flagIds.add(rrhhFlagObra.id);
+  if (vehFlagObra) flagIds.add(vehFlagObra.id);
+  const mergedFlagObras = primaryFlagObra ? [primaryFlagObra] : [];
+
   const conAsig = filteredObras.filter((o) => !flagIds.has(o.id) && obrasConAsignacion.has(o.id)).sort(alpha);
   const aPlanificar = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
   const resto = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
-  const sortedObrasAll = [...flagObras, ...conAsig, ...aPlanificar, ...resto];
+  const sortedObrasAll = [...mergedFlagObras, ...conAsig, ...aPlanificar, ...resto];
   const sortedObras = obraSearch ? sortedObrasAll.filter((o) => o.nombre.toLowerCase().includes(obraSearch.toLowerCase())) : sortedObrasAll;
   const obraIds = sortedObras.map((o) => o.id);
 
-  // Virtual assignments for special obras (visual only)
+  // Virtual assignments for merged "sin asignar" line (visual only)
   const displayGrid = useMemo(() => {
-    // Start with a copy of assignGrid
     const g: Record<string, Asignacion[]> = {};
     Object.entries(assignGrid).forEach(([k, v]) => { g[k] = [...v]; });
 
-    const rrhhSinAsignarObra = sortedObrasAll.find((o) => (o as any).flag_rrhh_sin_asignar);
-    const vehSinAsignarObra = sortedObrasAll.find((o) => (o as any).flag_vehiculo_sin_asignar);
-    if (!rrhhSinAsignarObra && !vehSinAsignarObra) return g;
+    if (!primaryFlagObra) return g;
+    const targetObraId = primaryFlagObra.id;
 
     const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; });
 
-    if (rrhhSinAsignarObra) {
-      rrhh.filter((r) => (r as any).asignable !== false).forEach((person) => {
-        weekDays.forEach((ds) => {
-          const isAssigned = asignaciones.some((a) => a.recurso_tipo === "humano" && a.recurso_id === person.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
-          if (!isAssigned) {
-            const k = `${rrhhSinAsignarObra.id}|${ds}`;
-            if (!g[k]) g[k] = [];
-            g[k].push({ id: `v-rrhh-${person.id}-${ds}`, obra_id: rrhhSinAsignarObra.id, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
-          }
-        });
+    // Add unassigned RRHH
+    rrhh.filter((r) => (r as any).asignable !== false).forEach((person) => {
+      weekDays.forEach((ds) => {
+        const isAssigned = asignaciones.some((a) => a.recurso_tipo === "humano" && a.recurso_id === person.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
+        if (!isAssigned) {
+          const k = `${targetObraId}|${ds}`;
+          if (!g[k]) g[k] = [];
+          g[k].push({ id: `v-rrhh-${person.id}-${ds}`, obra_id: targetObraId, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
+        }
       });
-    }
+    });
 
-    if (vehSinAsignarObra) {
-      vehList.filter((r) => (r as any).asignable !== false).forEach((veh) => {
-        weekDays.forEach((ds) => {
-          const isAssigned = asignaciones.some((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === veh.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
-          if (!isAssigned) {
-            const k = `${vehSinAsignarObra.id}|${ds}`;
-            if (!g[k]) g[k] = [];
-            g[k].push({ id: `v-veh-${veh.id}-${ds}`, obra_id: vehSinAsignarObra.id, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
-          }
-        });
+    // Add unassigned vehicles (same target obra)
+    vehList.filter((r) => (r as any).asignable !== false).forEach((veh) => {
+      weekDays.forEach((ds) => {
+        const isAssigned = asignaciones.some((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === veh.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
+        if (!isAssigned) {
+          const k = `${targetObraId}|${ds}`;
+          if (!g[k]) g[k] = [];
+          g[k].push({ id: `v-veh-${veh.id}-${ds}`, obra_id: targetObraId, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
+        }
       });
+    });
     }
 
     return g;
-  }, [assignGrid, sortedObrasAll, rrhh, vehList, dateStrs, asignaciones]);
+  }, [assignGrid, primaryFlagObra, rrhh, vehList, dateStrs, asignaciones]);
   // obraIds computed above with sortedObras
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
