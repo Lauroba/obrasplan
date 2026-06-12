@@ -267,11 +267,13 @@ export default function PlanificacionPage() {
     setObras((oR.data as Obra[]) || []); setAsignaciones(aR.data || []);
     setRrhh(hR.data || []); setMaqList(mR.data || []); setVehList(vR.data || []); setMatList(tR.data || []);
     setEstados(eR.data || []); setLoading(false);
-    // Fetch notas
-    const { data: notasData } = await supabase.from("planificador_notas").select("*, creator:users!planificador_notas_created_by_fkey(nombre)");
-    const notasMap: Record<string, any> = {};
-    (notasData || []).forEach((n: any) => { notasMap[`${n.obra_id}|${n.fecha}`] = { ...n, creator_nombre: n.creator?.nombre }; });
-    setNotas(notasMap);
+    // Fetch notas (resilient - table might not exist yet)
+    try {
+      const { data: notasData } = await supabase.from("planificador_notas").select("*");
+      const notasMap: Record<string, any> = {};
+      (notasData || []).forEach((n: any) => { notasMap[`${n.obra_id}|${n.fecha}`] = n; });
+      setNotas(notasMap);
+    } catch { /* table might not exist */ }
   }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -358,13 +360,15 @@ export default function PlanificacionPage() {
   const sortedObras = obraSearch ? sortedObrasAll.filter((o) => o.nombre.toLowerCase().includes(obraSearch.toLowerCase())) : sortedObrasAll;
   const obraIds = sortedObras.map((o) => o.id);
 
+  const primaryFlagObraId = primaryFlagObra?.id || null;
+
   // Virtual assignments for merged "sin asignar" line (visual only)
   const displayGrid = useMemo(() => {
     const g: Record<string, Asignacion[]> = {};
     Object.entries(assignGrid).forEach(([k, v]) => { g[k] = [...v]; });
 
-    if (!primaryFlagObra) return g;
-    const targetObraId = primaryFlagObra.id;
+    if (!primaryFlagObraId) return g;
+    const targetObraId = primaryFlagObraId;
 
     const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; });
 
@@ -393,7 +397,7 @@ export default function PlanificacionPage() {
     });
 
     return g;
-  }, [assignGrid, primaryFlagObra, rrhh, vehList, dateStrs, asignaciones]);
+  }, [assignGrid, primaryFlagObraId, rrhh, vehList, dateStrs, asignaciones]);
   // obraIds computed above with sortedObras
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };

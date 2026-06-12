@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
-import { StickyNote, Plus, Save, X, Loader2 } from "lucide-react";
+import { FileText, Plus, Save, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
 interface Nota {
@@ -86,7 +86,7 @@ export default function CellNote({ obraId, fecha, nota, onSaved }: Props) {
       {nota ? (
         <button onClick={(e) => { e.stopPropagation(); setPinned(!pinned); }}
           className="p-0.5 text-amber-500 hover:text-amber-600 transition-colors">
-          <StickyNote className="w-3 h-3" />
+          <FileText className="w-3 h-3" />
         </button>
       ) : (
         <button onClick={(e) => { e.stopPropagation(); setPinned(true); setEditing(true); setText(""); }}
