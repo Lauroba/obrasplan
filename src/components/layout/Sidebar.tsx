@@ -6,40 +6,43 @@ import Image from "next/image";
 import {
   LayoutDashboard, CalendarRange, Building2, ClipboardList,
   Users, Truck, Wrench, Package, Contact, Settings,
-  ScrollText, ShieldCheck, ChevronLeft, ChevronRight,
+  ScrollText, ChevronLeft, ChevronRight,
   Tag, Hammer, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useAuthStore } from "@/hooks/useAuth";
 import { useLayoutStore } from "@/hooks/useLayout";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const navigation = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Planificación", href: "/planificacion", icon: CalendarRange },
-  { name: "Obras", href: "/obras", icon: Building2 },
-  { name: "Partes Diarios", href: "/partes", icon: ClipboardList },
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, screen: "dashboard" },
+  { name: "Planificación", href: "/planificacion", icon: CalendarRange, screen: "planificacion" },
+  { name: "Obras", href: "/obras", icon: Building2, screen: "obras" },
+  { name: "Partes Diarios", href: "/partes", icon: ClipboardList, screen: "partes" },
 ];
 
 const maestros = [
-  { name: "Recursos Humanos", href: "/maestros/recursos-humanos", icon: Users },
-  { name: "Maquinaria", href: "/maestros/maquinaria", icon: Wrench },
-  { name: "Vehículos", href: "/maestros/vehiculos", icon: Truck },
-  { name: "Materiales", href: "/maestros/materiales", icon: Package },
-  { name: "Clientes", href: "/maestros/clientes", icon: Contact },
-  { name: "Estados de Obra", href: "/maestros/estados-obra", icon: Tag },
-  { name: "Tipos de Trabajo", href: "/maestros/tipos-trabajo", icon: Hammer },
-  { name: "Tipos de Obra", href: "/maestros/tipos-obra", icon: Building2 },
+  { name: "Recursos Humanos", href: "/maestros/recursos-humanos", icon: Users, screen: "maestros_rrhh" },
+  { name: "Maquinaria", href: "/maestros/maquinaria", icon: Wrench, screen: "maestros_maquinaria" },
+  { name: "Vehículos", href: "/maestros/vehiculos", icon: Truck, screen: "maestros_vehiculos" },
+  { name: "Materiales", href: "/maestros/materiales", icon: Package, screen: "maestros_materiales" },
+  { name: "Clientes", href: "/maestros/clientes", icon: Contact, screen: "maestros_clientes" },
+  { name: "Estados de Obra", href: "/maestros/estados-obra", icon: Tag, screen: "maestros_estados" },
+  { name: "Tipos de Trabajo", href: "/maestros/tipos-trabajo", icon: Hammer, screen: "maestros_tipos_trabajo" },
+  { name: "Tipos de Obra", href: "/maestros/tipos-obra", icon: Building2, screen: "maestros_tipos_obra" },
 ];
 
 const admin = [
-  { name: "Logs", href: "/logs", icon: ScrollText },
-  { name: "Configuración", href: "/configuracion", icon: Settings },
+  { name: "Logs", href: "/logs", icon: ScrollText, screen: "logs" },
+  { name: "Configuración", href: "/configuracion", icon: Settings, screen: "configuracion" },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuthStore();
   const { sidebarCollapsed: collapsed, toggleSidebar, mobileMenuOpen, setMobileMenu } = useLayoutStore();
+  const { isAdmin, visibleScreens } = usePermissions();
+  const screens = visibleScreens();
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
@@ -47,21 +50,17 @@ export default function Sidebar() {
   };
 
   const NavItem = ({ item }: { item: (typeof navigation)[0] }) => (
-    <Link
-      href={item.href}
-      onClick={() => setMobileMenu(false)}
-      className={cn("nav-link group", isActive(item.href) && "active")}
-      title={collapsed ? item.name : undefined}
-    >
-      <item.icon
-        className={cn(
-          "w-5 h-5 shrink-0 transition-colors",
-          isActive(item.href) ? "text-brand-600" : "text-surface-400 group-hover:text-surface-600"
-        )}
-      />
+    <Link href={item.href} onClick={() => setMobileMenu(false)}
+      className={cn("nav-link group", isActive(item.href) && "active")} title={collapsed ? item.name : undefined}>
+      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", isActive(item.href) ? "text-brand-600" : "text-surface-400 group-hover:text-surface-600")} />
       {(!collapsed || mobileMenuOpen) && <span className="truncate">{item.name}</span>}
     </Link>
   );
+
+  // Filter items by permission
+  const visibleNav = navigation.filter((item) => screens.has(item.screen));
+  const visibleMaestros = maestros.filter((item) => screens.has(item.screen));
+  const visibleAdmin = admin.filter((item) => screens.has(item.screen));
 
   const sidebarContent = (
     <>
@@ -81,18 +80,22 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-        <div className="space-y-1">
-          {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Principal</p>}
-          {navigation.map((item) => <NavItem key={item.href} item={item} />)}
-        </div>
-        <div className="space-y-1">
-          {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Maestros</p>}
-          {maestros.map((item) => <NavItem key={item.href} item={item} />)}
-        </div>
-        {(!user || user.role === "admin") && (
+        {visibleNav.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Principal</p>}
+            {visibleNav.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleMaestros.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Maestros</p>}
+            {visibleMaestros.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleAdmin.length > 0 && (
           <div className="space-y-1">
             {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Administración</p>}
-            {admin.map((item) => <NavItem key={item.href} item={item} />)}
+            {visibleAdmin.map((item) => <NavItem key={item.href} item={item} />)}
           </div>
         )}
       </nav>
