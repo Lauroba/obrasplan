@@ -343,7 +343,10 @@ export default function PlanificacionPage() {
     }
   });
   const filteredObras = obras.filter((o) => (!o.archivada || showArchived) && (!estadoFilter || o.estado_obra_id === estadoFilter));
-  const alpha = (a: any, b: any) => a.nombre.localeCompare(b.nombre, "es");
+  const byOrden = (a: any, b: any) => {
+    const oa = a.orden_gantt ?? 9999; const ob = b.orden_gantt ?? 9999;
+    return oa !== ob ? oa - ob : a.nombre.localeCompare(b.nombre, "es");
+  };
 
   // Find flag obras and merge into one
   const rrhhFlagObra = filteredObras.find((o) => (o as any).flag_rrhh_sin_asignar);
@@ -354,9 +357,9 @@ export default function PlanificacionPage() {
   if (vehFlagObra) flagIds.add(vehFlagObra.id);
   const mergedFlagObras = primaryFlagObra ? [primaryFlagObra] : [];
 
-  const conAsig = filteredObras.filter((o) => !flagIds.has(o.id) && obrasConAsignacion.has(o.id)).sort(alpha);
-  const aPlanificar = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
-  const resto = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(alpha);
+  const conAsig = filteredObras.filter((o) => !flagIds.has(o.id) && obrasConAsignacion.has(o.id)).sort(byOrden);
+  const aPlanificar = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(byOrden);
+  const resto = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(byOrden);
   const sortedObrasAll = [...mergedFlagObras, ...conAsig, ...aPlanificar, ...resto];
   const sortedObras = obraSearch ? sortedObrasAll.filter((o) => o.nombre.toLowerCase().includes(obraSearch.toLowerCase())) : sortedObrasAll;
   const obraIds = sortedObras.map((o) => o.id);
