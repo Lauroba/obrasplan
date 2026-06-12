@@ -391,7 +391,6 @@ export default function PlanificacionPage() {
         }
       });
     });
-    }
 
     return g;
   }, [assignGrid, primaryFlagObra, rrhh, vehList, dateStrs, asignaciones]);
