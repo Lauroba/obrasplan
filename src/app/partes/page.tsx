@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/hooks/useAuth";
 
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseDS = (ds: string) => { const [y, m, d] = ds.split("-").map(Number); return new Date(y, m - 1, d); };
 
 export default function PartesPage() {
   const supabase = createClient();
@@ -28,46 +29,67 @@ export default function PartesPage() {
   const [filterPersona, setFilterPersona] = useState("");
   // Obra selector modal for multiple assignments
   const [obraSelectModal, setObraSelectModal] = useState(false);
-  const [obraOptions, setObraOptions] = useState<{ id: string; nombre: string; color: string }[]>([]);
+  const [obraOptions, setObraOptions] = useState<{ id: string; nombre: string; color: string; fecha: string }[]>([]);
   const [noObraError, setNoObraError] = useState("");
 
   const isAdmin = user?.role === "admin";
 
-  const createDraft = async (obraId?: string) => {
+  const findPendientes = async (recursoId: string) => {
+    const today = toDS(new Date());
+    const [asigR, partesR] = await Promise.all([
+      supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", recursoId),
+      supabase.from("partes_diarios").select("obra_id, fecha").eq("created_by", user?.id),
+    ]);
+    const existing = new Set((partesR.data || []).map((p: any) => `${p.obra_id}|${p.fecha}`));
+    const pendientes: { obraId: string; fecha: string }[] = [];
+    const seen = new Set<string>();
+    (asigR.data || []).forEach((a: any) => {
+      const end = a.fecha_fin < today ? a.fecha_fin : today; // nunca futuro
+      if (a.fecha_inicio > end) return;
+      for (let d = parseDS(a.fecha_inicio); toDS(d) <= end; d.setDate(d.getDate() + 1)) {
+        const ds = toDS(d);
+        const key = `${a.obra_id}|${ds}`;
+        if (existing.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        pendientes.push({ obraId: a.obra_id, fecha: ds });
+      }
+    });
+    return pendientes;
+  };
+
+  const createDraft = async (obraId?: string, fecha?: string) => {
     setCreating(true);
     setNoObraError("");
+    let targetFecha = fecha || toDS(new Date());
 
     if (!isAdmin && !obraId) {
-      // Find obras assigned to this user today
-      const today = toDS(new Date());
       const recursoId = user?.recurso_id;
-
       if (!recursoId) {
         setNoObraError("Tu usuario no está vinculado a un recurso humano. Contacta con el administrador.");
         setCreating(false);
         return;
       }
 
-      const { data: asigs } = await supabase.from("asignaciones").select("obra_id").eq("recurso_tipo", "humano").eq("recurso_id", recursoId);
-      
-      // Filter assignments that include today
-      const todayAsigs = (asigs || []).filter((a: any) => a.fecha_inicio <= today && a.fecha_fin >= today);
-      
-      // Get unique obra IDs
-      const uniqueObraIds = Array.from(new Set(todayAsigs.map((a: any) => a.obra_id)));
+      const pendientes = await findPendientes(recursoId);
 
-      if (uniqueObraIds.length === 0) {
-        setNoObraError("No tienes ninguna obra asignada hoy. No puedes crear un parte.");
+      if (pendientes.length === 0) {
+        setNoObraError("No tienes ningún parte pendiente: no hay obras asignadas hoy ni jornadas pasadas sin parte.");
         setCreating(false);
         return;
       }
 
-      if (uniqueObraIds.length === 1) {
-        obraId = uniqueObraIds[0];
+      if (pendientes.length === 1) {
+        obraId = pendientes[0].obraId;
+        targetFecha = pendientes[0].fecha;
       } else {
-        // Multiple obras - show selector
-        const { data: obrasData } = await supabase.from("obras").select("id, nombre, color").in("id", uniqueObraIds);
-        setObraOptions((obrasData || []).sort((a: any, b: any) => a.nombre.localeCompare(b.nombre)));
+        const obraIds = Array.from(new Set(pendientes.map((p) => p.obraId)));
+        const { data: obrasData } = await supabase.from("obras").select("id, nombre, color").in("id", obraIds);
+        const obraNombre: Record<string, { nombre: string; color: string }> = {};
+        (obrasData || []).forEach((o: any) => obraNombre[o.id] = o);
+        const options = pendientes
+          .map((p) => ({ id: p.obraId, fecha: p.fecha, nombre: obraNombre[p.obraId]?.nombre || "?", color: obraNombre[p.obraId]?.color || "#DC2626" }))
+          .sort((a, b) => (b.fecha.localeCompare(a.fecha)) || a.nombre.localeCompare(b.nombre));
+        setObraOptions(options);
         setObraSelectModal(true);
         setCreating(false);
         return;
@@ -82,7 +104,7 @@ export default function PartesPage() {
     }
 
     const { data: parte, error } = await (supabase.from("partes_diarios") as any).insert({
-      fecha: toDS(new Date()),
+      fecha: targetFecha,
       created_by: user?.id,
       estado: "pendiente",
       obra_id: obraId || null,
@@ -92,15 +114,21 @@ export default function PartesPage() {
 
     if (parte) {
       router.push(`/partes/${parte.id}`);
+    } else if (error?.code === "23505" && obraId) {
+      // Ya existe un parte para esa obra+fecha+usuario: abrir el existente en vez de fallar
+      const { data: existente } = await supabase.from("partes_diarios").select("id").eq("obra_id", obraId).eq("fecha", targetFecha).eq("created_by", user?.id).single();
+      if (existente) { router.push(`/partes/${existente.id}`); return; }
+      alert("Ya existe un parte para esa obra y fecha.");
+      setCreating(false);
     } else {
       alert("Error al crear parte: " + (error?.message || ""));
       setCreating(false);
     }
   };
 
-  const handleObraSelected = (obraId: string) => {
+  const handleObraSelected = (obraId: string, fecha: string) => {
     setObraSelectModal(false);
-    createDraft(obraId);
+    createDraft(obraId, fecha);
   };
 
   const fetchData = useCallback(async () => {
@@ -218,14 +246,17 @@ export default function PartesPage() {
       </div>
 
       {/* Obra selector modal (when user has multiple obras assigned today) */}
-      <Modal open={obraSelectModal} onClose={() => setObraSelectModal(false)} title="Selecciona la obra" size="sm">
-        <p className="text-sm text-surface-500 mb-4">Hoy tienes varias obras asignadas. ¿En cuál quieres crear el parte?</p>
+      <Modal open={obraSelectModal} onClose={() => setObraSelectModal(false)} title="Selecciona el parte pendiente" size="sm">
+        <p className="text-sm text-surface-500 mb-4">Tienes varios partes pendientes. ¿Cuál quieres crear?</p>
         <div className="space-y-2">
-          {obraOptions.map((o) => (
-            <button key={o.id} onClick={() => handleObraSelected(o.id)}
+          {obraOptions.map((o, i) => (
+            <button key={`${o.id}-${o.fecha}-${i}`} onClick={() => handleObraSelected(o.id, o.fecha)}
               className="w-full flex items-center gap-3 p-3 bg-surface-50 rounded-lg border border-surface-200 hover:border-brand-400 hover:bg-brand-50 transition-all text-left">
               <div className="w-3 h-8 rounded-full shrink-0" style={{ backgroundColor: o.color || "#DC2626" }} />
-              <span className="text-sm font-medium text-surface-900">{o.nombre}</span>
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-medium text-surface-900 block">{o.nombre}</span>
+                <span className="text-xs text-surface-500">{new Date(o.fecha + "T12:00:00").toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })}</span>
+              </div>
             </button>
           ))}
         </div>

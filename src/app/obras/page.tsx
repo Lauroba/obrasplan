@@ -8,6 +8,7 @@ import { useAuthStore } from "@/hooks/useAuth";
 import type { Obra, EstadoObra } from "@/lib/types/database";
 import { Building2, Plus } from "lucide-react";
 import Link from "next/link";
+import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario";
 
 export default function ObrasPage() {
   const { user } = useAuthStore();
@@ -23,11 +24,21 @@ export default function ObrasPage() {
       .from("obras")
       .select("*, cliente:clientes(*), estado_custom:estados_obra(*)")
       .order("fecha_inicio", { ascending: false });
-    setData((rows as Obra[]) || []);
+
+    let visibleRows = (rows as Obra[]) || [];
+    if (user?.role !== "admin" && user?.recurso_id) {
+      const [asigR, partesR] = await Promise.all([
+        supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", user.recurso_id),
+        supabase.from("partes_diarios").select("obra_id, fecha, estado").eq("created_by", user.id),
+      ]);
+      visibleRows = filtrarObrasVisiblesOperario(visibleRows, (asigR.data || []) as any, (partesR.data || []) as any);
+    }
+
+    setData(visibleRows);
     const { data: est } = await supabase.from("estados_obra").select("*").eq("activo", true).order("nombre");
     setEstados(est || []);
     setLoading(false);
-  }, []);
+  }, [user]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

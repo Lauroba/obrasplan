@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
+import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario";
 
 interface ConflictInfo { recursoId: string; recursoName: string; recursoTipo: RecursoTipo; date: string; obras: string[] }
 type AssigView = "dia" | "semana";
@@ -46,7 +47,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchAll = async () => {
       const supabase = createClient();
-      const [tareasR, obrasR, partesR, asigR, rrhhR, maqR, vehR, revisadosR] = await Promise.all([
+      const [tareasR, obrasR, partesR, asigR, rrhhR, maqR, vehR, revisadosR, misPartesR] = await Promise.all([
         supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
         supabase.from("obras").select("*, estado_custom:estados_obra(*), cliente:clientes(nombre)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
@@ -55,10 +56,17 @@ export default function DashboardPage() {
         supabase.from("maquinaria").select("id, nombre"),
         supabase.from("vehiculos").select("id, nombre"),
         supabase.from("conflictos_revisados").select("recurso_tipo, recurso_id, fecha"),
+        user?.id ? supabase.from("partes_diarios").select("obra_id, fecha, estado").eq("created_by", user.id) : Promise.resolve({ data: [] as any[] }),
       ]);
 
+      let obrasVisibles = (obrasR.data || []) as any[];
+      if (user?.role !== "admin" && user?.recurso_id) {
+        const misAsig = (asigR.data || []).filter((a: any) => a.recurso_tipo === "humano" && a.recurso_id === user.recurso_id);
+        obrasVisibles = filtrarObrasVisiblesOperario(obrasVisibles, misAsig as any, (misPartesR.data || []) as any);
+      }
+
       setTareas((tareasR.data || []) as any[]);
-      setObrasActivas((obrasR.data || []) as any[]);
+      setObrasActivas(obrasVisibles);
       setPartesSinFirma((partesR.data || []) as any[]);
 
       // Fetch checklist items assigned to current user

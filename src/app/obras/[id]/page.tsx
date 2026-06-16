@@ -24,6 +24,7 @@ export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
+  const isAdmin = user?.role === "admin";
   const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -185,22 +186,32 @@ export default function ObraDetallePage() {
             }} disabled={downloadingPdf} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-700 bg-violet-50 rounded-lg hover:bg-violet-100 disabled:opacity-60">
               {downloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} PDF
             </button>
-            <button onClick={handleArchive} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg", obra.archivada ? "text-blue-700 bg-blue-50 hover:bg-blue-100" : "text-amber-700 bg-amber-50 hover:bg-amber-100")}>
-              {obra.archivada ? <Eye className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-              {obra.archivada ? "Desarchivar" : "Archivar"}
-            </button>
-            <button onClick={handleDelete} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100">
-              <Trash2 className="w-3.5 h-3.5" /> Eliminar
-            </button>
-            <Link href={`/obras/nueva?edit=${id}`} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">
-              <Pencil className="w-3.5 h-3.5" /> Editar
-            </Link>
-            <select value={obra.estado_obra_id || ""} onChange={(e) => handleChangeEstado(e.target.value)}
-              className="px-3 py-1.5 rounded-full text-sm font-medium text-white border-0 cursor-pointer focus:outline-none"
-              style={{ backgroundColor: (obra as any).estado_custom?.color || "#6B7280" }}>
-              <option value="">Sin estado</option>
-              {estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
-            </select>
+            {isAdmin && (
+              <>
+                <button onClick={handleArchive} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg", obra.archivada ? "text-blue-700 bg-blue-50 hover:bg-blue-100" : "text-amber-700 bg-amber-50 hover:bg-amber-100")}>
+                  {obra.archivada ? <Eye className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                  {obra.archivada ? "Desarchivar" : "Archivar"}
+                </button>
+                <button onClick={handleDelete} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100">
+                  <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                </button>
+                <Link href={`/obras/nueva?edit=${id}`} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">
+                  <Pencil className="w-3.5 h-3.5" /> Editar
+                </Link>
+              </>
+            )}
+            {isAdmin ? (
+              <select value={obra.estado_obra_id || ""} onChange={(e) => handleChangeEstado(e.target.value)}
+                className="px-3 py-1.5 rounded-full text-sm font-medium text-white border-0 cursor-pointer focus:outline-none"
+                style={{ backgroundColor: (obra as any).estado_custom?.color || "#6B7280" }}>
+                <option value="">Sin estado</option>
+                {estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
+              </select>
+            ) : (
+              <span className="px-3 py-1.5 rounded-full text-sm font-medium text-white" style={{ backgroundColor: (obra as any).estado_custom?.color || "#6B7280" }}>
+                {(obra as any).estado_custom?.nombre || "Sin estado"}
+              </span>
+            )}
           </div>
         </div>
 
@@ -258,9 +269,9 @@ export default function ObraDetallePage() {
             <div className="card p-6">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-surface-400" />Comentarios</h3>
-                {obsChanged && <button onClick={handleSaveObservaciones} disabled={obsSaving} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{obsSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}Guardar</button>}
+                {isAdmin && obsChanged && <button onClick={handleSaveObservaciones} disabled={obsSaving} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{obsSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}Guardar</button>}
               </div>
-              <textarea value={observaciones} onChange={(e) => { setObservaciones(e.target.value); setObsChanged(true); }} rows={4} placeholder="Notas, comentarios..." className={ic + " resize-y"} />
+              <textarea value={observaciones} onChange={(e) => { setObservaciones(e.target.value); setObsChanged(true); }} rows={4} placeholder="Notas, comentarios..." disabled={!isAdmin} className={ic + " resize-y" + (!isAdmin ? " bg-surface-50 cursor-not-allowed" : "")} />
             </div>
           </div>
         )}
@@ -394,7 +405,7 @@ export default function ObraDetallePage() {
           <div className="card p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-semibold text-surface-900">Documentos</h3>
-              <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir</button>
+              {isAdmin && <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir</button>}
             </div>
             <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleUploadFile} />
             {documentos.length === 0 ? <div className="text-center py-12 border-2 border-dashed border-surface-200 rounded-xl"><Upload className="w-8 h-8 text-surface-300 mx-auto mb-2" /><p className="text-sm text-surface-500">Sin documentos</p></div> : (
@@ -404,7 +415,7 @@ export default function ObraDetallePage() {
                   <div key={doc.id} className="flex items-center gap-3 p-3 bg-surface-50 rounded-lg border border-surface-100 group hover:border-surface-200">
                     <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", isImage ? "bg-violet-100 text-violet-600" : isPdf ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600")}>{isImage ? <ImageIcon className="w-5 h-5" /> : isPdf ? <FileText className="w-5 h-5" /> : <File className="w-5 h-5" />}</div>
                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleOpenDoc(doc)}><p className="text-sm font-medium text-surface-900 hover:text-brand-600 truncate">{doc.nombre_archivo}</p><p className="text-[11px] text-surface-400">{formatBytes(doc.tamano)}</p></div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100"><button onClick={() => handleOpenDoc(doc)} className="p-1.5 rounded-md text-surface-400 hover:text-brand-600"><ExternalLink className="w-4 h-4" /></button><button onClick={() => handleDeleteDoc(doc)} className="p-1.5 rounded-md text-surface-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button></div>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100"><button onClick={() => handleOpenDoc(doc)} className="p-1.5 rounded-md text-surface-400 hover:text-brand-600"><ExternalLink className="w-4 h-4" /></button>{isAdmin && <button onClick={() => handleDeleteDoc(doc)} className="p-1.5 rounded-md text-surface-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}</div>
                   </div>
                 );
               })}</div>
