@@ -28,7 +28,7 @@ interface DataTableProps<T extends { id: string }> {
   title: string;
   loading?: boolean;
   searchPlaceholder?: string;
-  searchKeys?: (keyof T)[];
+  searchKeys?: (keyof T | ((item: T) => string))[];
   onAdd?: () => void;
   onEdit?: (item: T) => void;
   onDelete?: (item: T) => void;
@@ -69,7 +69,7 @@ export default function DataTable<T extends { id: string }>({
     const q = search.toLowerCase();
     return data.filter((item) =>
       searchKeys.some((key) => {
-        const val = item[key];
+        const val = typeof key === "function" ? key(item) : item[key];
         return val && String(val).toLowerCase().includes(q);
       })
     );

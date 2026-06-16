@@ -73,20 +73,21 @@ export default function ObrasPage() {
               <p className="text-sm text-surface-500">Listado de todas las obras</p>
             </div>
           </div>
-          {user?.role === "admin" && (
-            <div className="flex items-center gap-2">
-              <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} className="px-3 py-2 text-sm bg-surface-100 border-0 rounded-lg text-surface-600 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-                <option value="">Todos los estados</option>
-                {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
+          <div className="flex items-center gap-2">
+            <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} className="px-3 py-2 text-sm bg-surface-100 border-0 rounded-lg text-surface-600 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+              <option value="">Todos los estados</option>
+              {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+            </select>
+            {user?.role === "admin" && (
               <Link href="/obras/nueva" className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
                 <Plus className="w-4 h-4" /> Nueva obra
               </Link>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         <DataTable data={filteredData} columns={columns} title="Todas las obras" loading={loading}
-          searchPlaceholder="Buscar por nombre, ubicación..." searchKeys={["nombre", "ubicacion", "estado"]}
+          searchPlaceholder="Buscar por nombre, cliente, dirección, localidad, presupuesto..."
+          searchKeys={["nombre", "ubicacion", "estado", (o: any) => o.cliente?.nombre || "", (o: any) => o.direccion || "", (o: any) => o.localidad || "", (o: any) => o.num_presupuesto || ""]}
           canAdd={false} canEdit={false} canDelete={false} />
       </div>
     </AppLayout>
