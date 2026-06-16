@@ -26,6 +26,8 @@ export default function DashboardPage() {
   const [tareas, setTareas] = useState<any[]>([]);
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   const [obrasActivas, setObrasActivas] = useState<any[]>([]);
+  const [obraSearch, setObraSearch] = useState("");
+  const [obraEstadoFilter, setObraEstadoFilter] = useState("");
   const [partesSinFirma, setPartesSinFirma] = useState<any[]>([]);
   const [checklistItems, setChecklistItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,7 @@ export default function DashboardPage() {
       const supabase = createClient();
       const [tareasR, obrasR, partesR, asigR, rrhhR, maqR, vehR, revisadosR] = await Promise.all([
         supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
-        supabase.from("obras").select("*, estado_custom:estados_obra(*)").eq("archivada", false).order("nombre"),
+        supabase.from("obras").select("*, estado_custom:estados_obra(*), cliente:clientes(nombre)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
         supabase.from("asignaciones").select("*"),
         supabase.from("recursos_humanos").select("id, nombre").eq("activo", true),
@@ -96,6 +98,7 @@ export default function DashboardPage() {
           if (!rdm[key]) rdm[key] = []; rdm[key].push({ obraId: a.obra_id });
         }
       });
+      if (revisadosR.error) console.error("No se pudo leer conflictos_revisados (¿falta ejecutar la migracion 021?):", revisadosR.error);
       const revisedSet = new Set((revisadosR.data || []).map((r: any) => `${r.recurso_tipo}|${r.recurso_id}|${r.fecha}`));
       const cList: ConflictInfo[] = []; const seen = new Set<string>();
       Object.entries(rdm).forEach(([key, entries]) => {
@@ -116,9 +119,14 @@ export default function DashboardPage() {
   const marcarRevisado = async (c: ConflictInfo) => {
     const supabase = createClient();
     setConflicts((prev) => prev.filter((x) => !(x.recursoId === c.recursoId && x.recursoTipo === c.recursoTipo && x.date === c.date)));
-    await supabase.from("conflictos_revisados").insert({
+    const { error } = await supabase.from("conflictos_revisados").insert({
       recurso_tipo: c.recursoTipo, recurso_id: c.recursoId, fecha: c.date, revisado_por: user?.id,
     } as any);
+    if (error) {
+      console.error("Error guardando conflicto revisado:", error);
+      alert("No se pudo guardar como revisado: " + error.message + "\n(¿se ejecutó la migración 021_conflictos_revisados.sql en Supabase?)");
+      setConflicts((prev) => [...prev, c]);
+    }
   };
 
   // Compute assignments for selected date(s)
@@ -175,6 +183,16 @@ export default function DashboardPage() {
   const greeting = () => { const h = new Date().getHours(); if (h < 12) return "Buenos días"; if (h < 20) return "Buenas tardes"; return "Buenas noches"; };
 
   const filteredTareas = taskFilter === "mine" ? tareas.filter((t) => t.asignado_a === user?.recurso_id) : tareas;
+  const obraEstadosDisponibles = Array.from(new Map(obrasActivas.filter((o) => o.estado_custom).map((o) => [o.estado_custom.id, o.estado_custom])).values());
+  const obrasFiltradas = obrasActivas.filter((o) => {
+    if (obraEstadoFilter && o.estado_obra_id !== obraEstadoFilter) return false;
+    if (obraSearch.trim()) {
+      const q = obraSearch.trim().toLowerCase();
+      const hay = [o.nombre, o.cliente?.nombre, o.direccion, o.localidad, o.num_presupuesto, o.ubicacion].filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
   const assigDates = Object.keys(assigData).sort();
   const totalPersons = assigView === "dia" ? (assigData[assigDates[0]] || []).length : Object.values(assigData).reduce((acc, v) => Math.max(acc, v.length), 0);
 
@@ -399,19 +417,29 @@ export default function DashboardPage() {
 
           {/* Obras activas */}
           <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">
-            <div className="flex items-center justify-between mb-3 shrink-0">
+            <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2"><Building2 className="w-4 h-4 text-brand-600" />Obras activas</h2>
-              <span className="text-xs text-surface-400">{obrasActivas.length}</span>
+              <span className="text-xs text-surface-400">{obrasFiltradas.length}</span>
+            </div>
+            <div className="flex items-center gap-1.5 mb-2 shrink-0">
+              <input type="text" value={obraSearch} onChange={(e) => setObraSearch(e.target.value)}
+                placeholder="Buscar obra, cliente, dirección..."
+                className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-surface-50 border-0 rounded-lg placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+              <select value={obraEstadoFilter} onChange={(e) => setObraEstadoFilter(e.target.value)}
+                className="px-1.5 py-1.5 text-xs bg-surface-50 border-0 rounded-lg text-surface-600 focus:outline-none focus:ring-2 focus:ring-brand-500/20 max-w-[100px]">
+                <option value="">Estado</option>
+                {obraEstadosDisponibles.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
             </div>
             <div className="space-y-1.5 overflow-y-auto flex-1">
-              {obrasActivas.map((o) => (
+              {obrasFiltradas.map((o) => (
                 <Link key={o.id} href={`/obras/${o.id}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-50 border border-surface-100 group">
                   <div className="w-2 h-8 rounded-full shrink-0" style={{ backgroundColor: o.color || "#DC2626" }} />
                   <div className="flex-1 min-w-0"><p className="text-xs font-medium text-surface-900 group-hover:text-brand-600 truncate">{o.nombre}</p><p className="text-[10px] text-surface-400 truncate">{o.ubicacion || ""}</p></div>
                   {o.estado_custom && <span className="text-[9px] px-2 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: o.estado_custom.color }}>{o.estado_custom.nombre}</span>}
                 </Link>
               ))}
-              {obrasActivas.length === 0 && <p className="text-sm text-surface-400 text-center py-4">Sin obras</p>}
+              {obrasFiltradas.length === 0 && <p className="text-sm text-surface-400 text-center py-4">Sin obras</p>}
             </div>
           </div>
 
