@@ -12,7 +12,6 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/hooks/useAuth";
 
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const parseDS = (ds: string) => { const [y, m, d] = ds.split("-").map(Number); return new Date(y, m - 1, d); };
 
 export default function PartesPage() {
   const supabase = createClient();
@@ -34,90 +33,36 @@ export default function PartesPage() {
 
   const isAdmin = user?.role === "admin";
 
-  const findPendientes = async (recursoId: string) => {
-    const today = toDS(new Date());
-    const [asigR, partesR] = await Promise.all([
-      supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", recursoId),
-      supabase.from("partes_diarios").select("obra_id, fecha").eq("created_by", user?.id),
-    ]);
-    const existing = new Set((partesR.data || []).map((p: any) => `${p.obra_id}|${p.fecha}`));
-    const pendientes: { obraId: string; fecha: string }[] = [];
-    const seen = new Set<string>();
-    (asigR.data || []).forEach((a: any) => {
-      const end = a.fecha_fin < today ? a.fecha_fin : today; // nunca futuro
-      if (a.fecha_inicio > end) return;
-      for (let d = parseDS(a.fecha_inicio); toDS(d) <= end; d.setDate(d.getDate() + 1)) {
-        const ds = toDS(d);
-        const key = `${a.obra_id}|${ds}`;
-        if (existing.has(key) || seen.has(key)) continue;
-        seen.add(key);
-        pendientes.push({ obraId: a.obra_id, fecha: ds });
-      }
-    });
-    return pendientes;
-  };
+  // Selector de fecha (paso 1 para operario)
+  const [dateModal, setDateModal] = useState(false);
+  const [selectedFecha, setSelectedFecha] = useState(toDS(new Date()));
 
-  const createDraft = async (obraId?: string, fecha?: string) => {
+  const abrirOCrearParte = async (obraId: string, fecha: string) => {
     setCreating(true);
     setNoObraError("");
-    let targetFecha = fecha || toDS(new Date());
 
-    if (!isAdmin && !obraId) {
-      const recursoId = user?.recurso_id;
-      if (!recursoId) {
-        setNoObraError("Tu usuario no está vinculado a un recurso humano. Contacta con el administrador.");
-        setCreating(false);
-        return;
-      }
-
-      const pendientes = await findPendientes(recursoId);
-
-      if (pendientes.length === 0) {
-        setNoObraError("No tienes ningún parte pendiente: no hay obras asignadas hoy ni jornadas pasadas sin parte.");
-        setCreating(false);
-        return;
-      }
-
-      if (pendientes.length === 1) {
-        obraId = pendientes[0].obraId;
-        targetFecha = pendientes[0].fecha;
-      } else {
-        const obraIds = Array.from(new Set(pendientes.map((p) => p.obraId)));
-        const { data: obrasData } = await supabase.from("obras").select("id, nombre, color").in("id", obraIds);
-        const obraNombre: Record<string, { nombre: string; color: string }> = {};
-        (obrasData || []).forEach((o: any) => obraNombre[o.id] = o);
-        const options = pendientes
-          .map((p) => ({ id: p.obraId, fecha: p.fecha, nombre: obraNombre[p.obraId]?.nombre || "?", color: obraNombre[p.obraId]?.color || "#DC2626" }))
-          .sort((a, b) => (b.fecha.localeCompare(a.fecha)) || a.nombre.localeCompare(b.nombre));
-        setObraOptions(options);
-        setObraSelectModal(true);
-        setCreating(false);
-        return;
-      }
+    // ¿Ya existe un parte para esta obra+fecha+usuario? Abrirlo, nunca duplicar.
+    const { data: existentes } = await supabase.from("partes_diarios").select("id").eq("obra_id", obraId).eq("fecha", fecha).eq("created_by", user?.id);
+    if (existentes && existentes.length > 0) {
+      router.push(`/partes/${existentes[0].id}`);
+      return;
     }
 
-    // Get obra address for the parte
     let direccion = null, localidad = null, provincia = null;
-    if (obraId) {
-      const { data: obraData } = await supabase.from("obras").select("direccion, localidad, provincia").eq("id", obraId).single();
-      if (obraData) { direccion = obraData.direccion; localidad = obraData.localidad; provincia = obraData.provincia; }
-    }
+    const { data: obraData } = await supabase.from("obras").select("direccion, localidad, provincia").eq("id", obraId).single();
+    if (obraData) { direccion = obraData.direccion; localidad = obraData.localidad; provincia = obraData.provincia; }
 
     const { data: parte, error } = await (supabase.from("partes_diarios") as any).insert({
-      fecha: targetFecha,
-      created_by: user?.id,
-      estado: "pendiente",
-      obra_id: obraId || null,
-      responsable_empresa: user?.nombre || "",
-      direccion, localidad, provincia,
+      fecha, created_by: user?.id, estado: "pendiente", obra_id: obraId,
+      responsable_empresa: user?.nombre || "", direccion, localidad, provincia,
     }).select().single();
 
     if (parte) {
       router.push(`/partes/${parte.id}`);
-    } else if (error?.code === "23505" && obraId) {
-      // Ya existe un parte para esa obra+fecha+usuario: abrir el existente en vez de fallar
-      const { data: existente } = await supabase.from("partes_diarios").select("id").eq("obra_id", obraId).eq("fecha", targetFecha).eq("created_by", user?.id).single();
-      if (existente) { router.push(`/partes/${existente.id}`); return; }
+    } else if (error?.code === "23505") {
+      // Carrera con otra creación simultánea: el parte ya existe, abrirlo
+      const { data: ahora } = await supabase.from("partes_diarios").select("id").eq("obra_id", obraId).eq("fecha", fecha).eq("created_by", user?.id);
+      if (ahora && ahora.length > 0) { router.push(`/partes/${ahora[0].id}`); return; }
       alert("Ya existe un parte para esa obra y fecha.");
       setCreating(false);
     } else {
@@ -126,9 +71,62 @@ export default function PartesPage() {
     }
   };
 
+  const handleNuevoParte = () => {
+    if (isAdmin) { createDraftAdmin(); return; }
+    setSelectedFecha(toDS(new Date()));
+    setNoObraError("");
+    setDateModal(true);
+  };
+
+  const handleFechaConfirmada = async () => {
+    setDateModal(false);
+    setCreating(true);
+    setNoObraError("");
+    const recursoId = user?.recurso_id;
+    if (!recursoId) {
+      setNoObraError("Tu usuario no está vinculado a un recurso humano. Contacta con el administrador.");
+      setCreating(false);
+      return;
+    }
+
+    const { data: asigs } = await supabase.from("asignaciones").select("obra_id").eq("recurso_tipo", "humano").eq("recurso_id", recursoId);
+    const delDia = (asigs || []).filter((a: any) => a.fecha_inicio <= selectedFecha && a.fecha_fin >= selectedFecha);
+    const obraIds = Array.from(new Set(delDia.map((a: any) => a.obra_id)));
+
+    if (obraIds.length === 0) {
+      const fechaLabel = new Date(selectedFecha + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long" });
+      setNoObraError(`No tienes ninguna obra asignada el ${fechaLabel}.`);
+      setCreating(false);
+      return;
+    }
+
+    if (obraIds.length === 1) {
+      await abrirOCrearParte(obraIds[0], selectedFecha);
+      return;
+    }
+
+    const { data: obrasData } = await supabase.from("obras").select("id, nombre, color").in("id", obraIds);
+    const options = (obrasData || []).map((o: any) => ({ ...o, fecha: selectedFecha })).sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+    setObraOptions(options);
+    setObraSelectModal(true);
+    setCreating(false);
+  };
+
+  // Admin: crea un parte en blanco directamente (sin pasar por asignaciones)
+  const createDraftAdmin = async () => {
+    setCreating(true);
+    setNoObraError("");
+    const { data: parte, error } = await (supabase.from("partes_diarios") as any).insert({
+      fecha: toDS(new Date()), created_by: user?.id, estado: "pendiente", obra_id: null,
+      responsable_empresa: user?.nombre || "",
+    }).select().single();
+    if (parte) router.push(`/partes/${parte.id}`);
+    else { alert("Error al crear parte: " + (error?.message || "")); setCreating(false); }
+  };
+
   const handleObraSelected = (obraId: string, fecha: string) => {
     setObraSelectModal(false);
-    createDraft(obraId, fecha);
+    abrirOCrearParte(obraId, fecha);
   };
 
   const fetchData = useCallback(async () => {
@@ -172,7 +170,7 @@ export default function PartesPage() {
             <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center"><ClipboardList className="w-5 h-5 text-orange-600" /></div>
             <div><h1 className="text-xl font-display font-bold text-surface-900">Partes Diarios</h1><p className="text-sm text-surface-500">{filtered.length} partes</p></div>
           </div>
-          <button onClick={() => createDraft()} disabled={creating} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+          <button onClick={handleNuevoParte} disabled={creating} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
             {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Nuevo parte
           </button>
         </div>
@@ -212,7 +210,7 @@ export default function PartesPage() {
           <div className="card text-center py-16">
             <ClipboardList className="w-10 h-10 text-surface-300 mx-auto mb-3" />
             <p className="text-sm text-surface-500">{hasFilters ? "Sin resultados" : "No hay partes"}</p>
-            <button onClick={() => createDraft()} className="text-sm text-brand-600 hover:underline mt-1">Crear primer parte</button>
+            <button onClick={handleNuevoParte} className="text-sm text-brand-600 hover:underline mt-1">Crear primer parte</button>
           </div>
         ) : (
           <div className="space-y-2">
@@ -245,18 +243,29 @@ export default function PartesPage() {
         )}
       </div>
 
-      {/* Obra selector modal (when user has multiple obras assigned today) */}
-      <Modal open={obraSelectModal} onClose={() => setObraSelectModal(false)} title="Selecciona el parte pendiente" size="sm">
-        <p className="text-sm text-surface-500 mb-4">Tienes varios partes pendientes. ¿Cuál quieres crear?</p>
+      {/* Selector de fecha (paso 1 para operario) */}
+      <Modal open={dateModal} onClose={() => setDateModal(false)} title="¿Qué día es el parte?" size="sm">
+        <p className="text-sm text-surface-500 mb-4">Indica la fecha del parte. Te asignaremos la obra correspondiente según tu planificación.</p>
+        <input type="date" value={selectedFecha} max={toDS(new Date())}
+          onChange={(e) => e.target.value && setSelectedFecha(e.target.value)}
+          className="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 mb-4" />
+        <button onClick={handleFechaConfirmada} disabled={creating}
+          className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+          {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Continuar"}
+        </button>
+      </Modal>
+
+      {/* Obra selector modal (cuando hay 2+ obras asignadas ese día) */}
+      <Modal open={obraSelectModal} onClose={() => setObraSelectModal(false)} title="Selecciona la obra" size="sm">
+        <p className="text-sm text-surface-500 mb-4">
+          Ese día tienes varias obras asignadas{obraOptions[0] ? ` (${new Date(obraOptions[0].fecha + "T12:00:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" })})` : ""}. ¿En cuál quieres crear el parte?
+        </p>
         <div className="space-y-2">
           {obraOptions.map((o, i) => (
-            <button key={`${o.id}-${o.fecha}-${i}`} onClick={() => handleObraSelected(o.id, o.fecha)}
+            <button key={`${o.id}-${i}`} onClick={() => handleObraSelected(o.id, o.fecha)}
               className="w-full flex items-center gap-3 p-3 bg-surface-50 rounded-lg border border-surface-200 hover:border-brand-400 hover:bg-brand-50 transition-all text-left">
               <div className="w-3 h-8 rounded-full shrink-0" style={{ backgroundColor: o.color || "#DC2626" }} />
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium text-surface-900 block">{o.nombre}</span>
-                <span className="text-xs text-surface-500">{new Date(o.fecha + "T12:00:00").toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })}</span>
-              </div>
+              <span className="text-sm font-medium text-surface-900">{o.nombre}</span>
             </button>
           ))}
         </div>
