@@ -1,13 +1,15 @@
 "use client";
 
 import { useAuthStore } from "@/hooks/useAuth";
+import { useLayoutStore } from "@/hooks/useLayout";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Bell, LogOut, User as UserIcon, Wifi, WifiOff } from "lucide-react";
+import { Bell, LogOut, User as UserIcon, Wifi, WifiOff, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export default function Topbar() {
   const { user } = useAuthStore();
+  const { setMobileMenu } = useLayoutStore();
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -30,7 +32,12 @@ export default function Topbar() {
   const roleLabels: Record<string, string> = { admin: "Administrador", lectura: "Solo lectura", partes: "Partes" };
 
   return (
-    <header className="sticky top-0 z-30 h-14 bg-white/80 backdrop-blur-lg border-b border-surface-200 flex items-center justify-end px-6 gap-2">
+    <header className="sticky top-0 z-30 h-14 bg-white/80 backdrop-blur-lg border-b border-surface-200 flex items-center justify-end px-4 lg:px-6 gap-2">
+      {/* Mobile menu toggle */}
+      <button onClick={() => setMobileMenu(true)} className="mr-auto p-2 rounded-lg text-surface-500 hover:bg-surface-100 lg:hidden">
+        <Menu className="w-5 h-5" />
+      </button>
+
       {/* Online status */}
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium">
         {isOnline ? (
