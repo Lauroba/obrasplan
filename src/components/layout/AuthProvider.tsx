@@ -90,11 +90,15 @@ export default function AuthProvider({
         fetchUser();
         // Log login - fire and forget, never blocks
         if (session?.user?.id) {
-          supabase.rpc("log_user_login", {
-            p_user_id: session.user.id,
-            p_ip: null,
-            p_user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-          }).catch(() => {});
+          (async () => {
+            try {
+              await supabase.rpc("log_user_login", {
+                p_user_id: session.user.id,
+                p_ip: null,
+                p_user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+              });
+            } catch { /* fire and forget: nunca debe romper el listener de auth */ }
+          })();
         }
       }
     });
