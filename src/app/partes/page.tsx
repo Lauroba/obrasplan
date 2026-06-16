@@ -89,13 +89,19 @@ export default function PartesPage() {
       return;
     }
 
-    const { data: asigs } = await supabase.from("asignaciones").select("obra_id").eq("recurso_tipo", "humano").eq("recurso_id", recursoId);
+    const { data: asigs, error: asigError } = await supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", recursoId);
+    console.log("[parte] recursoId:", recursoId, "selectedFecha:", selectedFecha, "asigs:", asigs, "error:", asigError);
+    if (asigError) {
+      setNoObraError(`Error consultando asignaciones: ${asigError.message}`);
+      setCreating(false);
+      return;
+    }
     const delDia = (asigs || []).filter((a: any) => a.fecha_inicio <= selectedFecha && a.fecha_fin >= selectedFecha);
     const obraIds = Array.from(new Set(delDia.map((a: any) => a.obra_id)));
 
     if (obraIds.length === 0) {
       const fechaLabel = new Date(selectedFecha + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long" });
-      setNoObraError(`No tienes ninguna obra asignada el ${fechaLabel}.`);
+      setNoObraError(`No tienes ninguna obra asignada el ${fechaLabel}. (recurso: ${recursoId}, total asignaciones encontradas: ${(asigs || []).length})`);
       setCreating(false);
       return;
     }
