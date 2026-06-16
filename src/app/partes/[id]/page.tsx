@@ -36,6 +36,8 @@ export default function ParteDetallePage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [misAsignaciones, setMisAsignaciones] = useState<{ obra_id: string; fecha_inicio: string; fecha_fin: string }[]>([]);
+  const fechaChangedManually = useRef(false);
 
   // Editable form state
   const [form, setForm] = useState({ fecha: "", obra_id: "", jefe_obra: "", encargado_obra: "", responsable_empresa: "", direccion: "", localidad: "", provincia: "", observaciones: "" });
@@ -45,7 +47,8 @@ export default function ParteDetallePage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [parteR, lineasR, docsR, audiosR, tiposR, rrhhR, obrasR, usersR] = await Promise.all([
+    const isAdminUser = user?.role === "admin";
+    const [parteR, lineasR, docsR, audiosR, tiposR, rrhhR, obrasR, usersR, misAsigR] = await Promise.all([
       supabase.from("partes_diarios").select("*, obra:obras(*), creator:users!partes_diarios_created_by_fkey(nombre)").eq("id", id).single(),
       supabase.from("parte_lineas").select("*, tipo_trabajo:tipos_trabajo(nombre)").eq("parte_id", id).order("orden"),
       supabase.from("documentos").select("*").eq("parte_id", id).order("created_at", { ascending: false }),
@@ -54,6 +57,9 @@ export default function ParteDetallePage() {
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("nombre"),
       supabase.from("obras").select("*").eq("archivada", false).order("nombre"),
       supabase.from("users").select("id, nombre").order("nombre"),
+      !isAdminUser && user?.recurso_id
+        ? supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", user.recurso_id)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
     const p = parteR.data as ParteDiario | null;
     setParte(p);
@@ -78,10 +84,12 @@ export default function ParteDetallePage() {
     setRrhh(rrhhR.data || []);
     setObras(obrasR.data || []);
     setAllUsers(usersR.data || []);
+    setMisAsignaciones((misAsigR.data || []) as any);
     setLoading(false);
-  }, [id]);
+  }, [id, user]);
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const isAdmin = user?.role === "admin";
   const isEditable = parte?.estado === "pendiente" || parte?.estado === "borrador";
   const hasObra = !!form.obra_id;
 
@@ -89,6 +97,22 @@ export default function ParteDetallePage() {
     const obra = obras.find((o: any) => o.id === obraId);
     setForm((f) => ({ ...f, obra_id: obraId, direccion: obra?.direccion || "", localidad: obra?.localidad || "", provincia: obra?.provincia || "" }));
   };
+
+  // Obras a las que el operario está asignado en la fecha actual del parte
+  const obrasDelDia = isAdmin ? obras : obras.filter((o: any) =>
+    misAsignaciones.some((a) => a.obra_id === o.id && a.fecha_inicio <= form.fecha && a.fecha_fin >= form.fecha)
+  );
+
+  // Si el operario cambia la fecha manualmente, resolver/forzar la obra según su asignación de ese día
+  useEffect(() => {
+    if (isAdmin || !fechaChangedManually.current) return;
+    if (obrasDelDia.length === 1) {
+      handleObraChange(obrasDelDia[0].id);
+    } else if (!obrasDelDia.some((o: any) => o.id === form.obra_id)) {
+      setForm((f) => ({ ...f, obra_id: "", direccion: "", localidad: "", provincia: "" }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.fecha, misAsignaciones]);
 
   const addLinea = () => setLineas([...lineas, { ...emptyLinea }]);
   const removeLinea = (idx: number) => setLineas(lineas.filter((_, i) => i !== idx));
@@ -283,8 +307,22 @@ export default function ParteDetallePage() {
         <div className="card p-6">
           <h2 className="text-sm font-semibold text-surface-900 mb-4">Datos del parte</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs font-medium text-surface-700 mb-1">Fecha</label><input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} disabled={!isEditable} className={isEditable ? ic : icDisabled} /></div>
-            <div><label className="block text-xs font-medium text-surface-700 mb-1">Obra</label><select value={form.obra_id} onChange={(e) => handleObraChange(e.target.value)} disabled={!isEditable} className={isEditable ? ic : icDisabled}><option value="">Sin obra</option>{obras.map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></div>
+            <div><label className="block text-xs font-medium text-surface-700 mb-1">Fecha</label><input type="date" value={form.fecha} onChange={(e) => { fechaChangedManually.current = true; setForm({ ...form, fecha: e.target.value }); }} disabled={!isEditable} className={isEditable ? ic : icDisabled} /></div>
+            <div>
+              <label className="block text-xs font-medium text-surface-700 mb-1">Obra</label>
+              {!isAdmin && obrasDelDia.length <= 1 ? (
+                <select value={form.obra_id} disabled className={icDisabled}>
+                  {obrasDelDia.length === 1
+                    ? <option value={obrasDelDia[0].id}>{obrasDelDia[0].nombre}</option>
+                    : <option value="">Sin obra asignada ese día</option>}
+                </select>
+              ) : (
+                <select value={form.obra_id} onChange={(e) => handleObraChange(e.target.value)} disabled={!isEditable} className={isEditable ? ic : icDisabled}>
+                  <option value="">{isAdmin ? "Sin obra" : "Selecciona la obra"}</option>
+                  {(isAdmin ? obras : obrasDelDia).map((o: any) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                </select>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-4">
             <div><label className="block text-xs font-medium text-surface-700 mb-1">Dirección <span className="text-[10px] text-surface-400">(de la obra)</span></label><input type="text" value={form.direccion} readOnly className={icLocked} /></div>
