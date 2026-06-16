@@ -57,13 +57,45 @@ export async function POST(req: NextRequest) {
     }
     const fmtDate = (f: string) => f ? new Date(f + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "—";
 
-    // Unique resources
-    const uniqueRes: Record<string, { tipo: string; nombre: string }> = {};
+    // Unique resources with merged assignment date ranges
+    const resPeriods: Record<string, { tipo: string; nombre: string; periods: { ini: string; fin: string }[] }> = {};
     asigs.forEach((a: any) => {
       const k = `${a.recurso_tipo}|${a.recurso_id}`;
-      if (!uniqueRes[k]) uniqueRes[k] = { tipo: a.recurso_tipo, nombre: resName[k] || "?" };
+      if (!resPeriods[k]) resPeriods[k] = { tipo: a.recurso_tipo, nombre: resName[k] || "?", periods: [] };
+      if (a.fecha_inicio) resPeriods[k].periods.push({ ini: a.fecha_inicio, fin: a.fecha_fin || a.fecha_inicio });
     });
-    const recursos = Object.values(uniqueRes);
+
+    const mergeRanges = (periods: { ini: string; fin: string }[]) => {
+      const sorted = [...periods].sort((a, b) => a.ini.localeCompare(b.ini));
+      const merged: { ini: string; fin: string }[] = [];
+      for (const p of sorted) {
+        const last = merged[merged.length - 1];
+        if (last) {
+          const nextDay = new Date(last.fin + "T12:00:00"); nextDay.setDate(nextDay.getDate() + 1);
+          const nextDayStr = nextDay.toISOString().slice(0, 10);
+          if (p.ini <= nextDayStr) { if (p.fin > last.fin) last.fin = p.fin; continue; }
+        }
+        merged.push({ ...p });
+      }
+      return merged;
+    };
+
+    const fmtShort = (f: string) => new Date(f + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
+    const fmtRange = (ini: string, fin: string) => {
+      if (!ini) return "—";
+      if (ini === fin) return fmtShort(ini);
+      const dIni = new Date(ini + "T12:00:00"), dFin = new Date(fin + "T12:00:00");
+      if (dIni.getMonth() === dFin.getMonth() && dIni.getFullYear() === dFin.getFullYear()) {
+        return `${dIni.getDate()}-${dFin.getDate()} ${fmtShort(fin).split(" ")[1]}`;
+      }
+      return `${fmtShort(ini)} - ${fmtShort(fin)}`;
+    };
+
+    const recursos = Object.values(resPeriods).map((r) => ({
+      tipo: r.tipo,
+      nombre: r.nombre,
+      fechas: mergeRanges(r.periods).map((p) => fmtRange(p.ini, p.fin)).join(", ") || "—",
+    }));
     const rrhhList = recursos.filter((r) => r.tipo === "humano");
     const vehList = recursos.filter((r) => r.tipo === "vehiculo");
     const maqList = recursos.filter((r) => r.tipo === "maquinaria");
@@ -136,22 +168,39 @@ export async function POST(req: NextRequest) {
     doc.text("EQUIPO ASIGNADO", m, y); y += 5;
 
     if (recursos.length > 0) {
-      const teamData: string[][] = [];
-      rrhhList.forEach((r) => teamData.push(["👤", r.nombre, "Persona"]));
-      vehList.forEach((r) => teamData.push(["🚗", r.nombre, "Vehículo"]));
-      maqList.forEach((r) => teamData.push(["⚙️", r.nombre, "Maquinaria"]));
+      const ordered = [...rrhhList, ...vehList, ...maqList];
+      const typeColor: Record<string, [number, number, number]> = { humano: [37, 99, 235], vehiculo: [217, 119, 6], maquinaria: [100, 116, 139] };
+      const typeLabel: Record<string, string> = { humano: "Persona", vehiculo: "Vehículo", maquinaria: "Maquinaria" };
 
-      doc.autoTable({
-        startY: y,
-        head: [["", "Recurso", "Tipo"]],
-        body: teamData,
-        margin: { left: m, right: m },
-        styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: [60, 60, 60], textColor: 255, fontSize: 7 },
-        columnStyles: { 0: { cellWidth: 8, halign: "center" }, 2: { cellWidth: 25 } },
-        theme: "grid",
-      });
-      y = doc.lastAutoTable.finalY + 6;
+      const rowH = 6.5;
+      const gap = 2;
+      const colGap = 6;
+      const colW2 = (pw - m * 2 - colGap) / 2;
+      const half = Math.ceil(ordered.length / 2);
+      const col1 = ordered.slice(0, half);
+      const col2 = ordered.slice(half);
+      const maxRows = Math.max(col1.length, col2.length);
+      const startY = y;
+
+      const drawRow = (r: { tipo: string; nombre: string; fechas: string }, x: number, yy: number, w: number) => {
+        const c = typeColor[r.tipo] || [150, 150, 150];
+        doc.setFillColor(c[0], c[1], c[2]);
+        doc.roundedRect(x, yy + 0.7, 2.4, 2.4, 0.5, 0.5, "F");
+        doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(20, 20, 20);
+        doc.text(r.nombre, x + 4.5, yy + 3);
+        doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+        doc.text(typeLabel[r.tipo] || r.tipo, x + 4.5, yy + 5.7);
+        doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setTextColor(110, 110, 110);
+        doc.text(r.fechas, x + w, yy + 3.5, { align: "right" });
+      };
+
+      for (let row = 0; row < maxRows; row++) {
+        const yy = startY + row * (rowH + gap);
+        if (row % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(m, yy - 0.6, pw - m * 2, rowH + gap, "F"); }
+        if (col1[row]) drawRow(col1[row], m + 2, yy, colW2 - 2);
+        if (col2[row]) drawRow(col2[row], m + colW2 + colGap, yy, colW2 - 2);
+      }
+      y = startY + maxRows * (rowH + gap) + 4;
     } else {
       doc.setFontSize(8); doc.setFont("helvetica", "italic"); doc.setTextColor(150, 150, 150);
       doc.text("Sin recursos asignados", m + 4, y + 2); y += 8;
