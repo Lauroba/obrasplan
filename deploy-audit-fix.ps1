@@ -147,7 +147,13 @@ if (-not (Test-Path $dbTypesPath)) {
 } else {
     $content = Get-Content -Path $dbTypesPath -Raw
 
-    $oldBlock = @"
+    # Here-strings de comilla SIMPLE ( @' ... '@ ): el contenido se trata
+    # como texto literal sin interpretar comillas dobles, $variables ni
+    # caracteres especiales. Es lo correcto aquí porque el bloque de código
+    # TypeScript contiene comillas dobles ("exito", "error", etc.) que un
+    # here-string de comilla doble (@" ... "@) intentaría interpretar y
+    # rompería el parseo del script.
+    $oldBlock = @'
 export interface AuditLog {
   id: string;
   user_id: string | null;
@@ -161,9 +167,9 @@ export interface AuditLog {
   created_at: string;
   user?: User;
 }
-"@
+'@
 
-    $newBlock = @"
+    $newBlock = @'
 export interface AuditLog {
   id: string;
   user_id: string | null;
@@ -183,7 +189,7 @@ export interface AuditLog {
   created_at: string;
   user?: User;
 }
-"@
+'@
 
     # Normalizar saltos de línea para que la comparación de texto funcione
     # igual en Windows (CRLF) que en el contenido generado aquí (LF).
@@ -192,7 +198,7 @@ export interface AuditLog {
     $normalizedNew = $newBlock -replace "`r`n", "`n"
 
     if ($normalizedContent -match [regex]::Escape("user_rol: string | null;")) {
-        Write-Warn "El patch ya parece aplicado (se encontró 'user_rol' en AuditLog). No se modifica."
+        Write-Warn "El patch ya parece aplicado (se encontro user_rol en AuditLog). No se modifica."
     }
     elseif ($normalizedContent.Contains($normalizedOld)) {
         if (-not $backedUp) {
@@ -221,19 +227,23 @@ export interface AuditLog {
 # -----------------------------------------------------------------------
 Write-Step "Resumen"
 
-Write-Host @"
+if ($backedUp) {
+    $backupLine = "  Backups de lo sobrescrito en: $backupDir"
+} else {
+    $backupLine = "  No hubo que sobrescribir nada (todo era nuevo)."
+}
 
-  Archivos desplegados en: $RepoPath
-  $(if ($backedUp) { "  Backups de lo sobrescrito en: $backupDir" } else { "  No hubo que sobrescribir nada (todo era nuevo)." })
-
-  Pendiente fuera de este script (no automatizable sin acceso a tu Supabase):
-    1) Ejecutar supabase\migrations\026_audit_complete_fix.sql en el
-       SQL Editor de Supabase (es idempotente, se puede reejecutar).
-    2) Verificar build local: npm run build
-    3) Promocionar manualmente a producción en el dashboard de Vercel
-       (plan Hobby no promociona automáticamente).
-
-"@ -ForegroundColor White
+Write-Host ""
+Write-Host "  Archivos desplegados en: $RepoPath"
+Write-Host $backupLine
+Write-Host ""
+Write-Host "  Pendiente fuera de este script (no automatizable sin acceso a tu Supabase):"
+Write-Host "    1) Ejecutar supabase\migrations\026_audit_complete_fix.sql en el"
+Write-Host "       SQL Editor de Supabase (es idempotente, se puede reejecutar)."
+Write-Host "    2) Verificar build local: npm run build"
+Write-Host "    3) Promocionar manualmente a produccion en el dashboard de Vercel"
+Write-Host "       (plan Hobby no promociona automaticamente)."
+Write-Host ""
 
 # -----------------------------------------------------------------------
 # 5. Git (opcional, requiere confirmación explícita)
