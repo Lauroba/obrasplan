@@ -1,6 +1,6 @@
-﻿// =============================================================================
+// =============================================================================
 // Tipos generados manualmente desde el esquema de base de datos.
-// En producciÃ³n, usar: npx supabase gen types typescript --local > database.ts
+// En producción, usar: npx supabase gen types typescript --local > database.ts
 // =============================================================================
 
 export type UserRole = "admin" | "lectura" | "partes";
@@ -317,15 +317,9 @@ export interface Documento {
 export interface AuditLog {
   id: string;
   user_id: string | null;
-  user_rol: string | null;
   accion: AuditAccion;
   entidad: string;
   entidad_id: string | null;
-  modulo: string | null;
-  descripcion: string | null;
-  resultado: "exito" | "error";
-  error_detalle: string | null;
-  origen: "trigger_db" | "api_route" | "rpc_manual" | "client_catch";
   valor_anterior: Record<string, unknown> | null;
   valor_nuevo: Record<string, unknown> | null;
   ip_address: string | null;

@@ -8,7 +8,7 @@ import { useAuthStore } from "@/hooks/useAuth";
 import type { AuditLog } from "@/lib/types/database";
 import {
   ScrollText, Loader2, ChevronLeft, ChevronRight, Search, X,
-  Plus, Pencil, Trash2, LogIn, Eye, ArrowRight, AlertTriangle, CheckCircle2
+  Plus, Pencil, Trash2, LogIn, Eye, ArrowRight
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -24,40 +24,12 @@ const ACCION_LABELS: Record<string, { label: string; color: string; icon: typeof
   logout: { label: "Logout", color: "bg-surface-100 text-surface-700", icon: LogIn },
 };
 
-// NOTA: lista ampliada en esta entrega para cubrir entidades que ya
-// generaban (o ahora generan, tras la migración 026) entradas de auditoría
-// pero no tenían etiqueta legible — aparecían como el nombre crudo de la
-// tabla. Ver migración 026_audit_complete_fix.sql para el detalle de qué
-// tablas se añadieron al sistema de auditoría en esta entrega.
 const ENTIDAD_LABELS: Record<string, string> = {
-  obras: "Obra",
-  obra_fases: "Fase de obra",
-  asignaciones: "Asignación",
-  partes_diarios: "Parte diario",
-  parte_trabajadores: "Parte · Trabajador",
-  parte_maquinaria: "Parte · Maquinaria",
-  parte_vehiculos: "Parte · Vehículo",
-  parte_materiales: "Parte · Material",
-  clientes: "Cliente",
-  recursos_humanos: "Recurso humano",
-  maquinaria: "Maquinaria",
-  vehiculos: "Vehículo",
-  materiales: "Material",
-  tareas: "Tarea",
-  documentos: "Documento",
-  parte_lineas: "Línea de parte",
-  parte_audios: "Audio de parte",
-  tipos_obra: "Tipo de obra",
-  tipos_trabajo: "Tipo de trabajo",
-  estados_obra: "Estado de obra",
-  users: "Usuario",
-  configuracion: "Configuración",
-  session: "Sesión",
-};
-
-const RESULTADO_LABELS: Record<string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
-  exito: { label: "Éxito", color: "bg-emerald-100 text-emerald-700", icon: CheckCircle2 },
-  error: { label: "Error", color: "bg-red-100 text-red-700", icon: AlertTriangle },
+  obras: "Obra", asignaciones: "Asignación", partes_diarios: "Parte diario",
+  clientes: "Cliente", recursos_humanos: "Recurso humano", maquinaria: "Maquinaria",
+  vehiculos: "Vehículo", materiales: "Material", tareas: "Tarea",
+  documentos: "Documento", parte_lineas: "Línea de parte", parte_audios: "Audio de parte",
+  tipos_trabajo: "Tipo de trabajo", estados_obra: "Estado de obra", session: "Sesión",
 };
 
 export default function LogsPage() {
@@ -75,7 +47,6 @@ export default function LogsPage() {
   const [filterUser, setFilterUser] = useState("");
   const [filterAccion, setFilterAccion] = useState("");
   const [filterEntidad, setFilterEntidad] = useState("");
-  const [filterResultado, setFilterResultado] = useState("");
   const [filterDesde, setFilterDesde] = useState("");
   const [filterHasta, setFilterHasta] = useState("");
 
@@ -90,7 +61,6 @@ export default function LogsPage() {
     if (filterUser) query = query.eq("user_id", filterUser);
     if (filterAccion) query = query.eq("accion", filterAccion);
     if (filterEntidad) query = query.eq("entidad", filterEntidad);
-    if (filterResultado) query = query.eq("resultado", filterResultado);
     if (filterDesde) query = query.gte("created_at", filterDesde + "T00:00:00");
     if (filterHasta) query = query.lte("created_at", filterHasta + "T23:59:59");
 
@@ -103,23 +73,18 @@ export default function LogsPage() {
     setUsers(usersData || []);
 
     setLoading(false);
-  }, [page, filterUser, filterAccion, filterEntidad, filterResultado, filterDesde, filterHasta]);
+  }, [page, filterUser, filterAccion, filterEntidad, filterDesde, filterHasta]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(0); }, [filterUser, filterAccion, filterEntidad, filterResultado, filterDesde, filterHasta]);
+  useEffect(() => { setPage(0); }, [filterUser, filterAccion, filterEntidad, filterDesde, filterHasta]);
 
-  const hasFilters = filterUser || filterAccion || filterEntidad || filterResultado || filterDesde || filterHasta;
+  const hasFilters = filterUser || filterAccion || filterEntidad || filterDesde || filterHasta;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  // Get a readable summary of what changed.
-  // Prioridad: la `descripcion` ya viene generada desde el backend (trigger
-  // de BD o capa de error) a partir de la migración 026 — es más fiable que
-  // intentar adivinar el campo "nombre" en el cliente, y funciona igual para
-  // cualquier entidad nueva sin tener que tocar este componente cada vez.
+  // Get a readable summary of what changed
   const getChangeSummary = (log: any): string => {
-    if (log.descripcion) return log.descripcion;
     if (log.accion === "login") return "Inicio de sesión";
     if (log.accion === "logout") return "Cierre de sesión";
     if (log.accion === "crear" && log.valor_nuevo) {
@@ -218,11 +183,6 @@ export default function LogsPage() {
               <option value="">Todas las entidades</option>
               {Object.entries(ENTIDAD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <select value={filterResultado} onChange={(e) => setFilterResultado(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-              <option value="">Éxito y error</option>
-              {Object.entries(RESULTADO_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
             <div className="flex items-center gap-1.5">
               <input type="date" value={filterDesde} onChange={(e) => setFilterDesde(e.target.value)} placeholder="Desde"
                 className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
@@ -231,7 +191,7 @@ export default function LogsPage() {
                 className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
             </div>
             {hasFilters && (
-              <button onClick={() => { setFilterUser(""); setFilterAccion(""); setFilterEntidad(""); setFilterResultado(""); setFilterDesde(""); setFilterHasta(""); }}
+              <button onClick={() => { setFilterUser(""); setFilterAccion(""); setFilterEntidad(""); setFilterDesde(""); setFilterHasta(""); }}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
                 <X className="w-3 h-3" /> Limpiar
               </button>
@@ -255,7 +215,6 @@ export default function LogsPage() {
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2.5 px-4">Acción</th>
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2.5 px-4">Entidad</th>
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2.5 px-4">Detalle</th>
-                    <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2.5 px-4">Resultado</th>
                     <th className="w-10"></th>
                   </tr>
                 </thead>
@@ -263,8 +222,6 @@ export default function LogsPage() {
                   {logs.map((log) => {
                     const accion = ACCION_LABELS[log.accion] || { label: log.accion, color: "bg-surface-100 text-surface-600", icon: Eye };
                     const AccionIcon = accion.icon;
-                    const resultado = RESULTADO_LABELS[log.resultado] || RESULTADO_LABELS.exito;
-                    const ResultadoIcon = resultado.icon;
                     return (
                       <tr key={log.id} className="border-b border-surface-50 hover:bg-surface-50/50 cursor-pointer transition-colors" onClick={() => setSelectedLog(log)}>
                         <td className="px-4 py-2.5 text-xs text-surface-600 whitespace-nowrap">
@@ -281,11 +238,6 @@ export default function LogsPage() {
                         </td>
                         <td className="px-4 py-2.5 text-xs text-surface-600">{ENTIDAD_LABELS[log.entidad] || log.entidad}</td>
                         <td className="px-4 py-2.5 text-xs text-surface-500 truncate max-w-[250px]">{getChangeSummary(log)}</td>
-                        <td className="px-4 py-2.5">
-                          <span className={cn("badge text-[10px] flex items-center gap-1 w-fit", resultado.color)}>
-                            <ResultadoIcon className="w-3 h-3" />{resultado.label}
-                          </span>
-                        </td>
                         <td className="px-4 py-2.5"><ArrowRight className="w-3.5 h-3.5 text-surface-300" /></td>
                       </tr>
                     );
@@ -324,30 +276,14 @@ export default function LogsPage() {
               <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Fecha</p>
                 <p className="text-sm text-surface-900 mt-0.5">{new Date(selectedLog.created_at).toLocaleString("es-ES")}</p></div>
               <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Usuario</p>
-                <p className="text-sm text-surface-900 mt-0.5">{selectedLog.log_user?.nombre || "Sistema"}{selectedLog.user_rol ? ` (${selectedLog.user_rol})` : ""}</p></div>
+                <p className="text-sm text-surface-900 mt-0.5">{selectedLog.log_user?.nombre || "Sistema"}</p></div>
               <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Acción</p>
                 <span className={cn("badge text-xs mt-0.5", (ACCION_LABELS[selectedLog.accion] || {}).color)}>{(ACCION_LABELS[selectedLog.accion] || {}).label || selectedLog.accion}</span></div>
               <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Entidad</p>
                 <p className="text-sm text-surface-900 mt-0.5">{ENTIDAD_LABELS[selectedLog.entidad] || selectedLog.entidad}</p></div>
-              {selectedLog.modulo && <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Módulo</p><p className="text-sm text-surface-900 mt-0.5 font-mono">{selectedLog.modulo}</p></div>}
-              <div><p className="text-[10px] font-semibold text-surface-400 uppercase">Resultado</p>
-                <span className={cn("badge text-xs mt-0.5", (RESULTADO_LABELS[selectedLog.resultado] || RESULTADO_LABELS.exito).color)}>
-                  {(RESULTADO_LABELS[selectedLog.resultado] || RESULTADO_LABELS.exito).label}
-                </span>
-              </div>
               {selectedLog.ip_address && <div><p className="text-[10px] font-semibold text-surface-400 uppercase">IP</p><p className="text-sm text-surface-900 mt-0.5 font-mono">{selectedLog.ip_address}</p></div>}
               {selectedLog.user_agent && <div className="col-span-2"><p className="text-[10px] font-semibold text-surface-400 uppercase">Navegador</p><p className="text-xs text-surface-600 mt-0.5 truncate">{selectedLog.user_agent}</p></div>}
             </div>
-
-            {/* Error detail (resultado = error) */}
-            {selectedLog.resultado === "error" && selectedLog.error_detalle && (
-              <div>
-                <h3 className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Detalle del error</h3>
-                <div className="bg-red-50 rounded-lg p-3">
-                  <p className="text-xs text-red-700 font-mono whitespace-pre-wrap">{selectedLog.error_detalle}</p>
-                </div>
-              </div>
-            )}
 
             {/* Diff */}
             {selectedLog.accion === "editar" && (
