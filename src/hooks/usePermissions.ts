@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -65,6 +65,7 @@ export function usePermissions() {
   // Screens that should appear in the sidebar
   const visibleScreens = useCallback((): Set<string> => {
     if (isAdmin) return new Set(["dashboard", "planificacion", "obras", "partes",
+      "apps_georadar",
       "maestros_rrhh", "maestros_maquinaria", "maestros_vehiculos", "maestros_materiales",
       "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra",
       "logs", "configuracion"]);

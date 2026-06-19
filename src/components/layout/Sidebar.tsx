@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CalendarRange, Building2, ClipboardList,
   Users, Truck, Wrench, Package, Contact, Settings,
   ScrollText, ChevronLeft, ChevronRight,
-  Tag, Hammer, X,
+  Tag, Hammer, X, LayoutGrid, Radar,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useAuthStore } from "@/hooks/useAuth";
@@ -19,6 +19,14 @@ const navigation = [
   { name: "Planificación", href: "/planificacion", icon: CalendarRange, screen: "planificacion" },
   { name: "Obras", href: "/obras", icon: Building2, screen: "obras" },
   { name: "Partes Diarios", href: "/partes", icon: ClipboardList, screen: "partes" },
+];
+
+// Catálogo de apps internas del módulo "Aplicaciones". Añadir una app
+// nueva en el futuro es tan simple como añadir una entrada aquí (con su
+// propio `screen` dado de alta en rol_permisos) -- no requiere tocar
+// ninguna otra parte del Sidebar ni del sistema de permisos.
+const aplicaciones = [
+  { name: "Interpretación de Georradar", href: "/aplicaciones/georadar", icon: Radar, screen: "apps_georadar" },
 ];
 
 const maestros = [
@@ -59,6 +67,7 @@ export default function Sidebar() {
 
   // Filter items by permission
   const visibleNav = navigation.filter((item) => screens.has(item.screen));
+  const visibleApps = aplicaciones.filter((item) => screens.has(item.screen));
   const visibleMaestros = maestros.filter((item) => screens.has(item.screen));
   const visibleAdmin = admin.filter((item) => screens.has(item.screen));
 
@@ -84,6 +93,12 @@ export default function Sidebar() {
           <div className="space-y-1">
             {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Principal</p>}
             {visibleNav.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleApps.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Aplicaciones</p>}
+            {visibleApps.map((item) => <NavItem key={item.href} item={item} />)}
           </div>
         )}
         {visibleMaestros.length > 0 && (

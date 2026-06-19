@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
@@ -11,6 +11,7 @@ const PATH_TO_SCREEN: Record<string, string> = {
   "/planificacion": "planificacion",
   "/obras": "obras",
   "/partes": "partes",
+  "/aplicaciones/georadar": "apps_georadar",
   "/maestros/recursos-humanos": "maestros_rrhh",
   "/maestros/maquinaria": "maestros_maquinaria",
   "/maestros/vehiculos": "maestros_vehiculos",

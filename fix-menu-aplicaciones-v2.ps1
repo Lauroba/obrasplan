@@ -1,3 +1,381 @@
+﻿#Requires -Version 5.1
+# fix-menu-aplicaciones-v2.ps1
+# Contenido incrustado directamente (sin depender de ningun zip externo).
+# Escribe los 5 archivos correctos, limpia archivos sueltos que no
+# debian estar en el repo, y deja todo listo para commit.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+
+if (-not (Test-Path $RepoPath)) {
+    Write-Host "ERROR: no se encuentra el repo en $RepoPath" -ForegroundColor Red
+    exit 1
+}
+Set-Location $RepoPath
+
+Write-Host ""
+Write-Host "==> Escribiendo los 5 archivos correctos" -ForegroundColor Cyan
+
+$dst = "src\components\layout\Sidebar.tsx"
+$content = @'
+"use client";
+
+import { usePathname } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import {
+  LayoutDashboard, CalendarRange, Building2, ClipboardList,
+  Users, Truck, Wrench, Package, Contact, Settings,
+  ScrollText, ChevronLeft, ChevronRight,
+  Tag, Hammer, X, LayoutGrid, Radar,
+} from "lucide-react";
+import { cn } from "@/lib/utils/cn";
+import { useAuthStore } from "@/hooks/useAuth";
+import { useLayoutStore } from "@/hooks/useLayout";
+import { usePermissions } from "@/hooks/usePermissions";
+
+const navigation = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, screen: "dashboard" },
+  { name: "Planificación", href: "/planificacion", icon: CalendarRange, screen: "planificacion" },
+  { name: "Obras", href: "/obras", icon: Building2, screen: "obras" },
+  { name: "Partes Diarios", href: "/partes", icon: ClipboardList, screen: "partes" },
+];
+
+// Catálogo de apps internas del módulo "Aplicaciones". Añadir una app
+// nueva en el futuro es tan simple como añadir una entrada aquí (con su
+// propio `screen` dado de alta en rol_permisos) -- no requiere tocar
+// ninguna otra parte del Sidebar ni del sistema de permisos.
+const aplicaciones = [
+  { name: "Interpretación de Georradar", href: "/aplicaciones/georadar", icon: Radar, screen: "apps_georadar" },
+];
+
+const maestros = [
+  { name: "Recursos Humanos", href: "/maestros/recursos-humanos", icon: Users, screen: "maestros_rrhh" },
+  { name: "Maquinaria", href: "/maestros/maquinaria", icon: Wrench, screen: "maestros_maquinaria" },
+  { name: "Vehículos", href: "/maestros/vehiculos", icon: Truck, screen: "maestros_vehiculos" },
+  { name: "Materiales", href: "/maestros/materiales", icon: Package, screen: "maestros_materiales" },
+  { name: "Clientes", href: "/maestros/clientes", icon: Contact, screen: "maestros_clientes" },
+  { name: "Estados de Obra", href: "/maestros/estados-obra", icon: Tag, screen: "maestros_estados" },
+  { name: "Tipos de Trabajo", href: "/maestros/tipos-trabajo", icon: Hammer, screen: "maestros_tipos_trabajo" },
+  { name: "Tipos de Obra", href: "/maestros/tipos-obra", icon: Building2, screen: "maestros_tipos_obra" },
+];
+
+const admin = [
+  { name: "Logs", href: "/logs", icon: ScrollText, screen: "logs" },
+  { name: "Configuración", href: "/configuracion", icon: Settings, screen: "configuracion" },
+];
+
+export default function Sidebar() {
+  const pathname = usePathname();
+  const { user } = useAuthStore();
+  const { sidebarCollapsed: collapsed, toggleSidebar, mobileMenuOpen, setMobileMenu } = useLayoutStore();
+  const { isAdmin, visibleScreens } = usePermissions();
+  const screens = visibleScreens();
+
+  const isActive = (href: string) => {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname.startsWith(href);
+  };
+
+  const NavItem = ({ item }: { item: (typeof navigation)[0] }) => (
+    <Link href={item.href} onClick={() => setMobileMenu(false)}
+      className={cn("nav-link group", isActive(item.href) && "active")} title={collapsed ? item.name : undefined}>
+      <item.icon className={cn("w-5 h-5 shrink-0 transition-colors", isActive(item.href) ? "text-brand-600" : "text-surface-400 group-hover:text-surface-600")} />
+      {(!collapsed || mobileMenuOpen) && <span className="truncate">{item.name}</span>}
+    </Link>
+  );
+
+  // Filter items by permission
+  const visibleNav = navigation.filter((item) => screens.has(item.screen));
+  const visibleApps = aplicaciones.filter((item) => screens.has(item.screen));
+  const visibleMaestros = maestros.filter((item) => screens.has(item.screen));
+  const visibleAdmin = admin.filter((item) => screens.has(item.screen));
+
+  const sidebarContent = (
+    <>
+      {/* Logo only */}
+      <div className="flex items-center justify-between px-4 h-16 border-b border-surface-200 shrink-0">
+        <Link href="/dashboard" className="flex items-center justify-center w-full">
+          <div className={cn("relative shrink-0", collapsed && !mobileMenuOpen ? "w-10 h-10" : "w-36 h-12")}>
+            <Image src="/logo-loynek.png" alt="Loynek" fill className="object-contain" />
+          </div>
+        </Link>
+        {mobileMenuOpen && (
+          <button onClick={() => setMobileMenu(false)} className="p-1 rounded-lg text-surface-400 hover:bg-surface-100 lg:hidden absolute right-3">
+            <X className="w-5 h-5" />
+          </button>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+        {visibleNav.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Principal</p>}
+            {visibleNav.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleApps.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Aplicaciones</p>}
+            {visibleApps.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleMaestros.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Maestros</p>}
+            {visibleMaestros.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleAdmin.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Administración</p>}
+            {visibleAdmin.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+      </nav>
+
+      {/* Collapse button - desktop only */}
+      <div className="hidden lg:block px-3 py-3 border-t border-surface-200 shrink-0">
+        <button onClick={() => toggleSidebar()}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-surface-400 hover:bg-surface-100 hover:text-surface-600 transition-colors">
+          {collapsed ? <ChevronRight className="w-4 h-4" /> : <><ChevronLeft className="w-4 h-4" /><span>Colapsar</span></>}
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <aside className={cn(
+        "hidden lg:flex fixed left-0 top-0 z-40 h-screen bg-white border-r border-surface-200 flex-col transition-all duration-300",
+        collapsed ? "w-[72px]" : "w-[260px]"
+      )}>
+        {sidebarContent}
+      </aside>
+
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileMenu(false)} />
+          <aside className="absolute left-0 top-0 h-full w-[280px] bg-white flex flex-col shadow-xl animate-slide-in">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+    </>
+  );
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\hooks\usePermissions.ts"
+$content = @'
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { useAuthStore } from "@/hooks/useAuth";
+
+interface Permisos {
+  pantalla: string;
+  visible: boolean;
+  crear: boolean;
+  editar: boolean;
+  eliminar: boolean;
+  asignar: boolean;
+}
+
+// Default permissions per screen for non-configured roles
+const DEFAULT_OPERARIO: Record<string, Partial<Permisos>> = {
+  dashboard: { visible: true },
+  partes: { visible: true, crear: true, editar: true },
+  obras: { visible: true },
+  planificacion: { visible: true },
+};
+
+export function usePermissions() {
+  const { user } = useAuthStore();
+  const supabase = createClient();
+  const [permisos, setPermisos] = useState<Permisos[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const isAdmin = user?.role === "admin";
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (isAdmin) { setLoaded(true); return; }
+
+    // Fetch permissions for user's role
+    const fetchPermisos = async () => {
+      // Get user's rol_id
+      const { data: userData } = await supabase.from("users").select("rol_id").eq("id", user.id).single();
+      if (userData?.rol_id) {
+        const { data } = await supabase.from("rol_permisos").select("*").eq("rol_id", userData.rol_id);
+        setPermisos(data || []);
+      }
+      setLoaded(true);
+    };
+
+    fetchPermisos();
+  }, [user?.id, isAdmin]);
+
+  const canAccess = useCallback((pantalla: string): boolean => {
+    if (isAdmin) return true;
+    const perm = permisos.find((p) => p.pantalla === pantalla);
+    if (perm) return perm.visible;
+    // Fallback to defaults for operario
+    return DEFAULT_OPERARIO[pantalla]?.visible || false;
+  }, [isAdmin, permisos]);
+
+  const canDo = useCallback((pantalla: string, action: "crear" | "editar" | "eliminar" | "asignar"): boolean => {
+    if (isAdmin) return true;
+    const perm = permisos.find((p) => p.pantalla === pantalla);
+    if (perm) return !!(perm as any)[action];
+    return !!(DEFAULT_OPERARIO[pantalla] as any)?.[action] || false;
+  }, [isAdmin, permisos]);
+
+  // Screens that should appear in the sidebar
+  const visibleScreens = useCallback((): Set<string> => {
+    if (isAdmin) return new Set(["dashboard", "planificacion", "obras", "partes",
+      "apps_georadar",
+      "maestros_rrhh", "maestros_maquinaria", "maestros_vehiculos", "maestros_materiales",
+      "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra",
+      "logs", "configuracion"]);
+
+    const screens = new Set<string>();
+    // From DB permissions
+    permisos.forEach((p) => { if (p.visible) screens.add(p.pantalla); });
+    // Always add defaults
+    Object.entries(DEFAULT_OPERARIO).forEach(([k, v]) => { if (v.visible) screens.add(k); });
+    return screens;
+  }, [isAdmin, permisos]);
+
+  return { isAdmin, canAccess, canDo, visibleScreens, loaded };
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\hooks\useRouteGuard.ts"
+$content = @'
+"use client";
+
+import { useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAuthStore } from "@/hooks/useAuth";
+
+// Map URL paths to screen names
+const PATH_TO_SCREEN: Record<string, string> = {
+  "/dashboard": "dashboard",
+  "/planificacion": "planificacion",
+  "/obras": "obras",
+  "/partes": "partes",
+  "/aplicaciones/georadar": "apps_georadar",
+  "/maestros/recursos-humanos": "maestros_rrhh",
+  "/maestros/maquinaria": "maestros_maquinaria",
+  "/maestros/vehiculos": "maestros_vehiculos",
+  "/maestros/materiales": "maestros_materiales",
+  "/maestros/clientes": "maestros_clientes",
+  "/maestros/estados-obra": "maestros_estados",
+  "/maestros/tipos-trabajo": "maestros_tipos_trabajo",
+  "/maestros/tipos-obra": "maestros_tipos_obra",
+  "/logs": "logs",
+  "/configuracion": "configuracion",
+};
+
+export function useRouteGuard() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user } = useAuthStore();
+  const { canAccess, loaded } = usePermissions();
+
+  useEffect(() => {
+    if (!loaded || !user) return;
+
+    // Find matching screen for current path
+    const screen = Object.entries(PATH_TO_SCREEN).find(([path]) => pathname.startsWith(path))?.[1];
+    if (!screen) return; // Unknown path, allow
+
+    if (!canAccess(screen)) {
+      router.replace("/dashboard");
+    }
+  }, [pathname, loaded, user, canAccess, router]);
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\app\aplicaciones\page.tsx"
+$content = @'
+"use client";
+
+import Link from "next/link";
+import AppLayout from "@/components/layout/AppLayout";
+import { LayoutGrid, Radar, ChevronRight } from "lucide-react";
+
+const APPS = [
+  {
+    key: "georadar_interpretacion",
+    nombre: "Interpretación de Georradar",
+    descripcion: "Análisis de radargramas Proceq GS8000 Pro: detección de huecos y suministros, cálculo volumétrico Sanders, informe técnico asistido por IA.",
+    href: "/aplicaciones/georadar",
+    icon: Radar,
+    activa: true,
+  },
+];
+
+export default function AplicacionesPage() {
+  return (
+    <AppLayout>
+      <div className="max-w-5xl mx-auto animate-fade-in">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
+            <LayoutGrid className="w-5 h-5 text-brand-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-display font-bold text-surface-900">Aplicaciones</h1>
+            <p className="text-sm text-surface-500">Herramientas internas de ObrasPlan</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {APPS.map((app) => (
+            <Link key={app.key} href={app.href} className="card p-5 hover:border-brand-300 hover:shadow-md transition-all group">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-lg bg-brand-50 flex items-center justify-center shrink-0 group-hover:bg-brand-100 transition-colors">
+                  <app.icon className="w-5 h-5 text-brand-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-sm font-semibold text-surface-900 mb-1">{app.nombre}</h2>
+                  <p className="text-xs text-surface-500 leading-relaxed">{app.descripcion}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-surface-300 group-hover:text-brand-500 transition-colors shrink-0 mt-1" />
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        <div className="mt-8 text-center text-xs text-surface-400">Más herramientas internas próximamente.</div>
+      </div>
+    </AppLayout>
+  );
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\app\aplicaciones\georadar\page.tsx"
+$content = @'
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -535,4 +913,73 @@ function FileDropZone({ label, loading, loaded, accept, onFile }: { label: strin
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
     </button>
   );
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "==> Eliminando archivos sueltos que no deben estar en el repo" -ForegroundColor Cyan
+
+$staleFiles = @(
+    "deploy-aplicaciones-georadar.ps1",
+    "deploy-audit-fix.ps1",
+    "fix-menu-aplicaciones.ps1",
+    "PATCH_database_types.txt",
+    "PATCH_package_json.txt",
+    "README.md",
+    "src\components\layout\sidebar-georadar.tsx",
+    "src\hooks\usepermissions-georadar.ts",
+    "src\hooks\userouteguard-georadar.ts",
+    "src\app\aplicaciones\aplicaciones-page.tsx",
+    "src\app\aplicaciones\georadar\georadar-page.tsx",
+    "src\app\maestros\tipos-obra\tipos-obra-page.tsx",
+    "src\app\logs\logs-page.tsx"
+)
+foreach ($f in $staleFiles) {
+    if (Test-Path $f) {
+        Remove-Item -Path $f -Force
+        Write-Host ("    Eliminado: " + $f) -ForegroundColor Yellow
+    }
+}
+if (Test-Path "files") {
+    Remove-Item -Path "files" -Recurse -Force
+    Write-Host "    Eliminada carpeta: files\" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "==> Verificando resultado" -ForegroundColor Cyan
+$checks = @(
+    "src\components\layout\Sidebar.tsx",
+    "src\hooks\usePermissions.ts",
+    "src\hooks\useRouteGuard.ts",
+    "src\app\aplicaciones\page.tsx",
+    "src\app\aplicaciones\georadar\page.tsx"
+)
+$allOk = $true
+foreach ($f in $checks) {
+    if (Test-Path $f) {
+        $hasMarker = Select-String -Path $f -Pattern "georadar|Aplicaciones|apps_georadar" -Quiet -ErrorAction SilentlyContinue
+        if ($hasMarker) {
+            Write-Host ("    OK: " + $f) -ForegroundColor Green
+        } else {
+            Write-Host ("    FALTA CONTENIDO: " + $f) -ForegroundColor Red
+            $allOk = $false
+        }
+    } else {
+        Write-Host ("    NO EXISTE: " + $f) -ForegroundColor Red
+        $allOk = $false
+    }
+}
+
+Write-Host ""
+if ($allOk) {
+    Write-Host "Todo correcto. Siguiente paso:" -ForegroundColor Green
+    Write-Host "  git add -A"
+    Write-Host "  git commit -m \"fix: corregir Sidebar/permisos/paginas de Aplicaciones-Georadar y limpiar archivos sueltos\""
+    Write-Host "  git push"
+} else {
+    Write-Host "Algo fallo, revisa los mensajes en rojo antes de hacer commit." -ForegroundColor Red
 }
