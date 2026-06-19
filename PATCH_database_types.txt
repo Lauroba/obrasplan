@@ -1,0 +1,52 @@
+PATCH MANUAL — src/lib/types/database.ts
+==========================================
+
+Este archivo es muy grande y específico de tu proyecto, así que en vez de
+reescribirlo entero te indico el cambio exacto a aplicar (es una sola
+interfaz, 6 líneas nuevas).
+
+Busca esto (línea ~317):
+
+----------------------------------------------------------------------
+export interface AuditLog {
+  id: string;
+  user_id: string | null;
+  accion: AuditAccion;
+  entidad: string;
+  entidad_id: string | null;
+  valor_anterior: Record<string, unknown> | null;
+  valor_nuevo: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  user?: User;
+}
+----------------------------------------------------------------------
+
+Y reemplázalo por:
+
+----------------------------------------------------------------------
+export interface AuditLog {
+  id: string;
+  user_id: string | null;
+  user_rol: string | null;
+  accion: AuditAccion;
+  entidad: string;
+  entidad_id: string | null;
+  modulo: string | null;
+  descripcion: string | null;
+  resultado: "exito" | "error";
+  error_detalle: string | null;
+  origen: "trigger_db" | "api_route" | "rpc_manual" | "client_catch";
+  valor_anterior: Record<string, unknown> | null;
+  valor_nuevo: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  user?: User;
+}
+----------------------------------------------------------------------
+
+No se requiere ningún otro cambio en este archivo: la entrada
+`audit_log: { Row: AuditLog; ... }` del bloque Database ya reutiliza este
+tipo automáticamente.
