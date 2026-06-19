@@ -1,0 +1,28 @@
+PATCH MANUAL -- package.json
+==============================
+
+Anadir la dependencia "docx" (usada para generar el informe Word del
+georradar) dentro del bloque "dependencies", en orden alfabetico junto a
+"date-fns-tz" y "jspdf":
+
+Busca esto:
+
+----------------------------------------------------------------------
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "jspdf": "^2.5.2",
+----------------------------------------------------------------------
+
+Y reemplazalo por:
+
+----------------------------------------------------------------------
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "docx": "^9.7.1",
+    "jspdf": "^2.5.2",
+----------------------------------------------------------------------
+
+Despues, ejecuta "npm install" para que se instale la libreria.
+
+NOTA: el script de despliegue deploy-aplicaciones-georadar.ps1 aplica
+este cambio automaticamente -- esta nota es solo de referencia/fallback.
