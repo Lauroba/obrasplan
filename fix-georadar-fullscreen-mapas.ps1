@@ -1,4 +1,601 @@
-﻿"use client";
+﻿#Requires -Version 5.1
+# fix-georadar-fullscreen-mapas.ps1
+# Anade pantalla completa, selector de vista (7 modos) y panel de mapas
+# (OSM sincronizado + mapa de calor) a la app de Interpretacion de
+# Georradar. Contenido incrustado directamente, sin depender de ningun
+# zip externo.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+
+if (-not (Test-Path $RepoPath)) {
+    Write-Host "ERROR: no se encuentra el repo en $RepoPath" -ForegroundColor Red
+    exit 1
+}
+Set-Location $RepoPath
+
+Write-Host ""
+Write-Host "==> Escribiendo archivos del modulo georadar" -ForegroundColor Cyan
+
+$dst = "src\lib\georadar\useGeoradarStore.ts"
+$content = @'
+/**
+ * src/lib/georadar/useGeoradarStore.ts
+ *
+ * Estado del modulo de interpretacion de georradar. Reemplaza las
+ * variables globales mutables S / ZONES de la app HTML original por un
+ * store de Zustand, siguiendo el mismo patron que el resto de ObrasPlan
+ * (ver src/hooks/useLayout.ts).
+ */
+
+import { create } from "zustand";
+import type { SegyData } from "./parseSegy";
+import type { AnomalyResult, LayerResult, GpsPoint, MaterialKey } from "./detectAnomalies";
+
+export interface ZoomState {
+  lf: number;
+  hf: number;
+}
+
+// Modos de vista del panel de visualizacion, equivalentes a LAYOUTS del
+// HTML original: all=4 paneles, lf/hf=radar individual, mapa/calor=mapas
+// individuales, radares=LF+HF, mapas=mapa+calor.
+export type LayoutMode = "all" | "lf" | "hf" | "mapa" | "calor" | "radares" | "mapas";
+
+interface GeoradarState {
+  rdLF: SegyData | null;
+  rdHF: SegyData | null;
+  gps: GpsPoint[];
+
+  anoms: AnomalyResult[];
+  layers: LayerResult[];
+  selectedIndex: number;
+
+  clienteNombre: string;
+  proyecto: string;
+  zonaNombre: string;
+  velocidadEm: number;
+  anchuraM: number;
+  longitudSeccionM: number;
+  material: MaterialKey;
+  longitudPerfilM: number;
+
+  zoomLevel: ZoomState;
+  zoomStart: ZoomState;
+
+  analisisTexto: string | null;
+  analisisModelo: string | null;
+  analizando: boolean;
+
+  layoutMode: LayoutMode;
+  fullscreen: boolean;
+  heatmapMinFrac: number;
+  heatmapMaxFrac: number;
+  heatmapRadiusPx: number;
+
+  setRdLF: (rd: SegyData | null) => void;
+  setRdHF: (rd: SegyData | null) => void;
+  setGps: (gps: GpsPoint[]) => void;
+  setAnoms: (anoms: AnomalyResult[], layers: LayerResult[]) => void;
+  setSelectedIndex: (i: number) => void;
+  setClienteNombre: (v: string) => void;
+  setProyecto: (v: string) => void;
+  setZonaNombre: (v: string) => void;
+  setVelocidadEm: (v: number) => void;
+  setAnchuraM: (v: number) => void;
+  setLongitudSeccionM: (v: number) => void;
+  setMaterial: (v: MaterialKey) => void;
+  setLongitudPerfilM: (v: number) => void;
+  setZoom: (ch: "lf" | "hf", level: number, start: number) => void;
+  setAnalisis: (texto: string | null, modelo: string | null) => void;
+  setAnalizando: (v: boolean) => void;
+  setLayoutMode: (m: LayoutMode) => void;
+  setFullscreen: (v: boolean) => void;
+  toggleFullscreen: () => void;
+  setHeatmapParams: (min: number, max: number, radius: number) => void;
+  reset: () => void;
+}
+
+const initialState = {
+  rdLF: null,
+  rdHF: null,
+  gps: [] as GpsPoint[],
+  anoms: [] as AnomalyResult[],
+  layers: [] as LayerResult[],
+  selectedIndex: -1,
+  clienteNombre: "",
+  proyecto: "",
+  zonaNombre: "ZONA 1",
+  velocidadEm: 0.09,
+  anchuraM: 0,
+  longitudSeccionM: 1.5,
+  material: "gr" as MaterialKey,
+  longitudPerfilM: 884.2,
+  zoomLevel: { lf: 1, hf: 1 },
+  zoomStart: { lf: 0, hf: 0 },
+  analisisTexto: null,
+  analisisModelo: null,
+  analizando: false,
+  layoutMode: "all" as LayoutMode,
+  fullscreen: false,
+  heatmapMinFrac: 0,
+  heatmapMaxFrac: 1,
+  heatmapRadiusPx: 30,
+};
+
+export const useGeoradarStore = create<GeoradarState>((set) => ({
+  ...initialState,
+  setRdLF: (rd) => set({ rdLF: rd }),
+  setRdHF: (rd) => set({ rdHF: rd }),
+  setGps: (gps) => set({ gps }),
+  setAnoms: (anoms, layers) => set({ anoms, layers }),
+  setSelectedIndex: (i) => set({ selectedIndex: i }),
+  setClienteNombre: (v) => set({ clienteNombre: v }),
+  setProyecto: (v) => set({ proyecto: v }),
+  setZonaNombre: (v) => set({ zonaNombre: v }),
+  setVelocidadEm: (v) => set({ velocidadEm: v }),
+  setAnchuraM: (v) => set({ anchuraM: v }),
+  setLongitudSeccionM: (v) => set({ longitudSeccionM: v }),
+  setMaterial: (v) => set({ material: v }),
+  setLongitudPerfilM: (v) => set({ longitudPerfilM: v }),
+  setZoom: (ch, level, start) =>
+    set((s) => ({ zoomLevel: { ...s.zoomLevel, [ch]: level }, zoomStart: { ...s.zoomStart, [ch]: start } })),
+  setAnalisis: (texto, modelo) => set({ analisisTexto: texto, analisisModelo: modelo }),
+  setAnalizando: (v) => set({ analizando: v }),
+  setLayoutMode: (m) => set({ layoutMode: m }),
+  setFullscreen: (v) => set({ fullscreen: v }),
+  toggleFullscreen: () => set((s) => ({ fullscreen: !s.fullscreen })),
+  setHeatmapParams: (min, max, radius) => set({ heatmapMinFrac: min, heatmapMaxFrac: max, heatmapRadiusPx: radius }),
+  reset: () => set(initialState),
+}));
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\lib\georadar\mapLayers.ts"
+$content = @'
+/**
+ * src/lib/georadar/mapLayers.ts
+ *
+ * Logica de los dos mapas Leaflet (OSM sincronizado + mapa de calor de
+ * anomalias), portada de la app HTML original (initMaps, updateMaps,
+ * renderHeat). Adaptada para usarse desde refs de React en vez de
+ * document.getElementById, y con la paleta de colores de ObrasPlan
+ * (decision confirmada: estilo claro, no el tema oscuro original).
+ */
+
+import L from "leaflet";
+import type { AnomalyResult, GpsPoint } from "./detectAnomalies";
+
+export interface MapPair {
+  m1: L.Map;
+  m2: L.Map;
+  layers1: L.Layer[];
+  layers2: L.Layer[];
+}
+
+const DEFAULT_CENTER: L.LatLngTuple = [43.3585, -3.0518];
+
+export function initMaps(container1: HTMLElement, container2: HTMLElement, onMove: () => void): MapPair {
+  const m1 = L.map(container1, { center: DEFAULT_CENTER, zoom: 16, zoomControl: true, preferCanvas: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 20,
+    minZoom: 1,
+    crossOrigin: true,
+  }).addTo(m1);
+
+  const m2 = L.map(container2, { center: DEFAULT_CENTER, zoom: 16, zoomControl: false, attributionControl: false, preferCanvas: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, minZoom: 1, crossOrigin: true }).addTo(m2);
+
+  let syncing = false;
+  m1.on("move zoom", () => {
+    if (syncing) return;
+    syncing = true;
+    m2.setView(m1.getCenter(), m1.getZoom(), { animate: false });
+    syncing = false;
+    onMove();
+  });
+  m2.on("move zoom", () => {
+    if (syncing) return;
+    syncing = true;
+    m1.setView(m2.getCenter(), m2.getZoom(), { animate: false });
+    syncing = false;
+    onMove();
+  });
+
+  return { m1, m2, layers1: [], layers2: [] };
+}
+
+function clearLayers(pair: MapPair) {
+  pair.layers1.forEach((l) => {
+    try { l.remove(); } catch { /* capa ya eliminada */ }
+  });
+  pair.layers2.forEach((l) => {
+    try { l.remove(); } catch { /* capa ya eliminada */ }
+  });
+  pair.layers1 = [];
+  pair.layers2 = [];
+}
+
+function addToBoth(pair: MapPair, layer1: L.Layer, layer2: L.Layer) {
+  layer1.addTo(pair.m1);
+  layer2.addTo(pair.m2);
+  pair.layers1.push(layer1);
+  pair.layers2.push(layer2);
+}
+
+const TRACK_COLOR = "#dc2626";
+const RISK_COLOR: Record<string, string> = { high: "#dc2626", med: "#d97706", low: "#2563eb" };
+
+export function updateMapLayers(
+  pair: MapPair,
+  gps: GpsPoint[],
+  anoms: AnomalyResult[],
+  longitudPerfilM: number,
+  onSelectAnom: (i: number) => void
+) {
+  clearLayers(pair);
+  if (!gps.length) return;
+
+  const lls: L.LatLngTuple[] = gps.map((p) => [p.lat, p.lon]);
+
+  const track1 = L.polyline(lls, { color: TRACK_COLOR, weight: 3, opacity: 0.85, smoothFactor: 1 });
+  const track2 = L.polyline(lls, { color: TRACK_COLOR, weight: 3, opacity: 0.85, smoothFactor: 1 });
+  addToBoth(pair, track1, track2);
+
+  const glow1 = L.polyline(lls, { color: TRACK_COLOR, weight: 8, opacity: 0.12, smoothFactor: 1 });
+  const glow2 = L.polyline(lls, { color: TRACK_COLOR, weight: 8, opacity: 0.12, smoothFactor: 1 });
+  addToBoth(pair, glow1, glow2);
+
+  const bounds = track1.getBounds();
+  pair.m1.fitBounds(bounds, { padding: [50, 50], maxZoom: 17, animate: false });
+  pair.m2.fitBounds(bounds, { padding: [50, 50], maxZoom: 17, animate: false });
+
+  const mkStyle = { radius: 7, fillOpacity: 0.9, weight: 2, color: "#ffffff" };
+  const start = gps[0];
+  const end = gps[gps.length - 1];
+  addToBoth(
+    pair,
+    L.circleMarker([start.lat, start.lon], { ...mkStyle, fillColor: "#16a34a" }).bindTooltip("Inicio - 0m"),
+    L.circleMarker([start.lat, start.lon], { ...mkStyle, fillColor: "#16a34a" })
+  );
+  addToBoth(
+    pair,
+    L.circleMarker([end.lat, end.lon], { ...mkStyle, fillColor: TRACK_COLOR }).bindTooltip("Fin - " + longitudPerfilM.toFixed(1) + "m"),
+    L.circleMarker([end.lat, end.lon], { ...mkStyle, fillColor: TRACK_COLOR })
+  );
+
+  anoms.forEach((a, i) => {
+    if (!a.gpt) return;
+    const isVoid = a.type === "void";
+    const col = isVoid ? "#dc2626" : "#d97706";
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">' +
+      (a.risk === "high" ? '<circle cx="14" cy="14" r="13" fill="none" stroke="' + col + '" stroke-width="2" stroke-dasharray="3,2" opacity=".6"/>' : "") +
+      '<circle cx="14" cy="14" r="10" fill="' + col + '" fill-opacity=".95" stroke="#ffffff" stroke-width="2"/>' +
+      '<text x="14" y="17" text-anchor="middle" fill="#ffffff" font-size="7" font-weight="bold" font-family="monospace">' + (isVoid ? "H" : "S") + (i + 1) + "</text></svg>";
+    const icon = L.divIcon({ html: svg, className: "", iconSize: [28, 28], iconAnchor: [14, 14] });
+    const riskColor = a.risk ? RISK_COLOR[a.risk] : "#6b7280";
+    const popupHtml =
+      '<div style="font-family:system-ui,sans-serif;font-size:12px;min-width:160px">' +
+      '<div style="font-weight:700;color:' + col + ';margin-bottom:4px">' + (isVoid ? "Hueco " : "Suministro ") + (i + 1) + "</div>" +
+      '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#6b7280">Distancia</span><span>' + a.distM + " m</span></div>" +
+      '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#6b7280">Profundidad</span><span>' + a.dM + " m</span></div>" +
+      '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#6b7280">Dimensiones</span><span>' + a.wM + "x" + a.hM + " m</span></div>" +
+      (isVoid
+        ? '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#6b7280">Vol. bruto</span><span>' + a.vBruto.toFixed(4) + " m3</span></div>" +
+          '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#6b7280">Riesgo</span><span style="color:' + riskColor + ';font-weight:700">' + (a.risk?.toUpperCase() || "-") + "</span></div>"
+        : "") +
+      "</div>";
+    const mk1 = L.marker([a.gpt.lat, a.gpt.lon], { icon }).bindPopup(popupHtml);
+    const mk2 = L.marker([a.gpt.lat, a.gpt.lon], { icon }).bindPopup(popupHtml);
+    mk1.on("click", () => onSelectAnom(i));
+    mk2.on("click", () => onSelectAnom(i));
+    addToBoth(pair, mk1, mk2);
+  });
+}
+
+export interface HeatmapParams {
+  minDepthFrac: number;
+  maxDepthFrac: number;
+  radiusPx: number;
+}
+
+export function renderHeatmap(
+  canvas: HTMLCanvasElement,
+  map2: L.Map,
+  anoms: AnomalyResult[],
+  maxDepthM: number,
+  params: HeatmapParams
+): { voidsInRange: number } {
+  const wrap = canvas.parentElement;
+  const W = wrap?.clientWidth || 2;
+  const H = wrap?.clientHeight || 2;
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { voidsInRange: 0 };
+  ctx.clearRect(0, 0, W, H);
+
+  if (!anoms.length) return { voidsInRange: 0 };
+
+  const minDepth = params.minDepthFrac * maxDepthM;
+  const maxDepth = params.maxDepthFrac * maxDepthM;
+  const voids = anoms.filter(
+    (a) => a.type === "void" && a.gpt && a.dM >= minDepth && (params.maxDepthFrac >= 1 || a.dM <= maxDepth)
+  );
+  if (!voids.length) return { voidsInRange: 0 };
+
+  const pts = voids
+    .map((a) => {
+      try {
+        const pt = map2.latLngToContainerPoint([a.gpt!.lat, a.gpt!.lon]);
+        return { x: pt.x, y: pt.y, vol: a.vBruto, risk: a.risk };
+      } catch {
+        return null;
+      }
+    })
+    .filter((p): p is { x: number; y: number; vol: number; risk: AnomalyResult["risk"] } => !!p && isFinite(p.x) && isFinite(p.y));
+
+  if (!pts.length) return { voidsInRange: voids.length };
+
+  const rad = params.radiusPx;
+  const maxV = Math.max(...pts.map((p) => p.vol), 1e-12);
+  const field = new Float32Array(W * H);
+  pts.forEach((pt) => {
+    const w = pt.vol / maxV + 0.15;
+    const x0 = Math.max(0, Math.round(pt.x - rad));
+    const x1 = Math.min(W - 1, Math.round(pt.x + rad));
+    const y0 = Math.max(0, Math.round(pt.y - rad));
+    const y1 = Math.min(H - 1, Math.round(pt.y + rad));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const d = Math.sqrt((x - pt.x) ** 2 + (y - pt.y) ** 2);
+        if (d < rad) field[y * W + x] += w * (1 - d / rad) ** 2;
+      }
+    }
+  });
+
+  let fmax = 0;
+  for (let i = 0; i < field.length; i++) if (field[i] > fmax) fmax = field[i];
+  if (!fmax) return { voidsInRange: voids.length };
+
+  const img = ctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const t = field[i] / fmax;
+    if (t < 0.04) continue;
+    let r: number, g: number, b: number;
+    if (t < 0.25) {
+      r = 0; g = Math.round(t * 4 * 180); b = Math.round(80 + t * 4 * 175);
+    } else if (t < 0.5) {
+      const s = (t - 0.25) / 0.25; r = 0; g = Math.round(180 + s * 75); b = Math.round(255 - s * 255);
+    } else if (t < 0.75) {
+      const s = (t - 0.5) / 0.25; r = Math.round(s * 255); g = 255; b = 0;
+    } else {
+      const s = (t - 0.75) / 0.25; r = 255; g = Math.round(255 - s * 230); b = 0;
+    }
+    const idx = i * 4;
+    img.data[idx] = r; img.data[idx + 1] = g; img.data[idx + 2] = b;
+    img.data[idx + 3] = Math.round(Math.min(t * 1.5, 1) * 180);
+  }
+  ctx.putImageData(img, 0, 0);
+
+  pts.forEach((pt) => {
+    if (pt.x < 0 || pt.x > W || pt.y < 0 || pt.y > H) return;
+    const rc = pt.risk === "high" ? "#dc2626" : pt.risk === "med" ? "#d97706" : "#2563eb";
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fill();
+    ctx.strokeStyle = rc;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#111827";
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText((pt.vol * 1e4).toFixed(0), pt.x, pt.y);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+  });
+
+  const lx = 8;
+  const ly = H - 46;
+  const gg = ctx.createLinearGradient(lx, ly, lx + 90, ly);
+  gg.addColorStop(0, "rgba(0,80,200,.9)");
+  gg.addColorStop(0.33, "rgba(0,220,255,.9)");
+  gg.addColorStop(0.55, "rgba(0,255,50,.9)");
+  gg.addColorStop(0.75, "rgba(255,230,0,.9)");
+  gg.addColorStop(1, "rgba(255,20,0,.9)");
+  ctx.fillStyle = gg;
+  ctx.fillRect(lx, ly, 90, 8);
+  ctx.strokeStyle = "rgba(0,0,0,.2)";
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(lx, ly, 90, 8);
+  ctx.fillStyle = "rgba(255,255,255,.95)";
+  ctx.font = "7px monospace";
+  ctx.shadowColor = "rgba(0,0,0,0.6)";
+  ctx.shadowBlur = 2;
+  ctx.fillText("Bajo", lx, ly + 17);
+  ctx.fillText("Alto", lx + 62, ly + 17);
+  ctx.fillText("Vol. x10-4 m3", lx, ly + 26);
+  ctx.shadowBlur = 0;
+
+  return { voidsInRange: voids.length };
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\app\aplicaciones\georadar\MapsPanel.tsx"
+$content = @'
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import { initMaps, updateMapLayers, renderHeatmap, type MapPair } from "@/lib/georadar/mapLayers";
+import { useGeoradarStore } from "@/lib/georadar/useGeoradarStore";
+import { maxDepthOf } from "@/lib/georadar/renderRadargram";
+
+/**
+ * Panel de mapas (OSM sincronizado + mapa de calor de anomalias).
+ * Componente separado y cargado con next/dynamic (ssr:false) desde la
+ * pagina principal, porque Leaflet accede a `window` en el momento de
+ * importarse y rompe el render de servidor de Next.js si no se aisla asi.
+ *
+ * Los iconos por defecto de Leaflet (marker-icon.png) se referencian via
+ * URL relativa al paquete y fallan en bundlers como Webpack/Next si no se
+ * reconfiguran; aqui no se usan marcadores por defecto (todos los
+ * marcadores de mapLayers.ts usan L.divIcon con SVG inline), asi que no
+ * hace falta el workaround habitual de Leaflet+webpack.
+ */
+export default function MapsPanel({ showMapa, showCalor }: { showMapa: boolean; showCalor: boolean }) {
+  const store = useGeoradarStore();
+  const mapContainer1 = useRef<HTMLDivElement>(null);
+  const mapContainer2 = useRef<HTMLDivElement>(null);
+  const heatCanvas = useRef<HTMLCanvasElement>(null);
+  const pairRef = useRef<MapPair | null>(null);
+  const [voidsInRange, setVoidsInRange] = useState(0);
+
+  const refreshHeat = () => {
+    if (!heatCanvas.current || !pairRef.current) return;
+    const rd = store.rdLF || store.rdHF;
+    const md = rd ? maxDepthOf(rd, store.velocidadEm) : 3;
+    const { voidsInRange: n } = renderHeatmap(heatCanvas.current, pairRef.current.m2, store.anoms, md, {
+      minDepthFrac: store.heatmapMinFrac,
+      maxDepthFrac: store.heatmapMaxFrac,
+      radiusPx: store.heatmapRadiusPx,
+    });
+    setVoidsInRange(n);
+  };
+
+  // Inicializa los mapas una sola vez, cuando ambos contenedores existen.
+  useEffect(() => {
+    if (!mapContainer1.current || !mapContainer2.current || pairRef.current) return;
+    const pair = initMaps(mapContainer1.current, mapContainer2.current, refreshHeat);
+    pairRef.current = pair;
+    return () => {
+      pair.m1.remove();
+      pair.m2.remove();
+      pairRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Redibuja las capas (track GPS + anomalias) cuando cambian los datos.
+  useEffect(() => {
+    if (!pairRef.current) return;
+    updateMapLayers(pairRef.current, store.gps, store.anoms, store.longitudPerfilM, store.setSelectedIndex);
+    setTimeout(() => {
+      pairRef.current?.m1.invalidateSize(false);
+      pairRef.current?.m2.invalidateSize(false);
+      refreshHeat();
+    }, 250);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.gps, store.anoms, store.longitudPerfilM]);
+
+  // Redibuja el heatmap cuando cambian sus parametros o la visibilidad cambia
+  useEffect(() => {
+    const t = setTimeout(refreshHeat, 100);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.heatmapMinFrac, store.heatmapMaxFrac, store.heatmapRadiusPx, showMapa, showCalor]);
+
+  // Recalcular tamano de los mapas al cambiar de layout (el contenedor
+  // puede pasar de oculto a visible y Leaflet necesita invalidateSize).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      pairRef.current?.m1.invalidateSize(false);
+      pairRef.current?.m2.invalidateSize(false);
+      refreshHeat();
+    }, 80);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMapa, showCalor]);
+
+  const md = (store.rdLF || store.rdHF) ? maxDepthOf((store.rdLF || store.rdHF)!, store.velocidadEm) : 3;
+
+  return (
+    <>
+      {showMapa && (
+        <div className="bg-white flex flex-col min-h-0">
+          <div className="flex items-center gap-2 px-2 py-1 border-b border-surface-100 text-[10px]">
+            <span className="font-semibold text-surface-700">Mapa</span>
+            <span className="text-surface-400 font-mono">
+              {store.gps.length} pts RTK · {store.anoms.length} anomalías
+            </span>
+          </div>
+          <div ref={mapContainer1} className="relative flex-1 min-h-[200px]">
+            {store.gps.length === 0 && (
+              <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/90 text-surface-400 text-[11px] px-6 text-center pointer-events-none">
+                Carga un GNSS CSV o pulsa &quot;Probar con datos demo&quot;
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showCalor && (
+        <div className="bg-white flex flex-col min-h-0">
+          <div className="flex items-center gap-2 px-2 py-1 border-b border-surface-100 text-[10px] flex-wrap">
+            <span className="font-semibold text-surface-700">Mapa de calor</span>
+            <span className="text-surface-400 font-mono">{voidsInRange} huecos en rango</span>
+            <div className="ml-auto flex items-center gap-1.5 text-surface-500">
+              <span className="font-mono">Prof:</span>
+              <input
+                type="range" min={0} max={100}
+                value={store.heatmapMinFrac * 100}
+                onChange={(e) => store.setHeatmapParams(parseInt(e.target.value) / 100, store.heatmapMaxFrac, store.heatmapRadiusPx)}
+                className="w-12"
+              />
+              <span className="font-mono text-[9px]">{(store.heatmapMinFrac * md).toFixed(1)}m</span>
+              <input
+                type="range" min={0} max={100}
+                value={store.heatmapMaxFrac * 100}
+                onChange={(e) => store.setHeatmapParams(store.heatmapMinFrac, parseInt(e.target.value) / 100, store.heatmapRadiusPx)}
+                className="w-12"
+              />
+              <span className="font-mono text-[9px]">{store.heatmapMaxFrac >= 1 ? "∞" : (store.heatmapMaxFrac * md).toFixed(1) + "m"}</span>
+              <span className="font-mono">R:</span>
+              <input
+                type="range" min={10} max={120}
+                value={store.heatmapRadiusPx}
+                onChange={(e) => store.setHeatmapParams(store.heatmapMinFrac, store.heatmapMaxFrac, parseInt(e.target.value))}
+                className="w-10"
+              />
+            </div>
+          </div>
+          <div className="relative flex-1 min-h-[200px]">
+            <div ref={mapContainer2} className="absolute inset-0" />
+            <canvas ref={heatCanvas} className="absolute inset-0 pointer-events-none" />
+            {store.gps.length === 0 && (
+              <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/90 text-surface-400 text-[11px] px-6 text-center pointer-events-none">
+                Carga un GNSS CSV o pulsa &quot;Probar con datos demo&quot;
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$dst = "src\app\aplicaciones\georadar\page.tsx"
+$content = @'
+"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
@@ -677,4 +1274,94 @@ function RadarPanel({
       </div>
     </div>
   );
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+Set-Content -Path $dst -Value $content -NoNewline -Encoding UTF8
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "==> Anadiendo leaflet y @types/leaflet a package.json" -ForegroundColor Cyan
+
+$pkgPath = "package.json"
+$pkgContent = Get-Content -Path $pkgPath -Raw
+$normalizedPkg = $pkgContent -replace "`r`n", "`n"
+
+if ($normalizedPkg -match '"leaflet":') {
+    Write-Host "    Ya estaba: leaflet en package.json" -ForegroundColor Yellow
+} else {
+    $oldDep = @'
+    "jspdf": "^2.5.2",
+'@
+    $newDep = @'
+    "jspdf": "^2.5.2",
+    "leaflet": "^1.9.4",
+'@
+    $oldOld = ($oldDep -replace "`r`n", "`n")
+    $newNew = ($newDep -replace "`r`n", "`n")
+    if ($normalizedPkg.Contains($oldOld)) {
+        $normalizedPkg = $normalizedPkg.Replace($oldOld, $newNew)
+        Write-Host "    Anadido: leaflet" -ForegroundColor Green
+    } else {
+        Write-Host "    AVISO: no se encontro el punto de insercion para leaflet, anadelo a mano" -ForegroundColor Yellow
+    }
+}
+
+if ($normalizedPkg -match '"@types/leaflet":') {
+    Write-Host "    Ya estaba: @types/leaflet en package.json" -ForegroundColor Yellow
+} else {
+    $oldDev = @'
+    "@types/node": "^22.10.0",
+'@
+    $newDev = @'
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^22.10.0",
+'@
+    $oldOld2 = ($oldDev -replace "`r`n", "`n")
+    $newNew2 = ($newDev -replace "`r`n", "`n")
+    if ($normalizedPkg.Contains($oldOld2)) {
+        $normalizedPkg = $normalizedPkg.Replace($oldOld2, $newNew2)
+        Write-Host "    Anadido: @types/leaflet" -ForegroundColor Green
+    } else {
+        Write-Host "    AVISO: no se encontro el punto de insercion para @types/leaflet, anadelo a mano" -ForegroundColor Yellow
+    }
+}
+
+$finalPkg = $normalizedPkg -replace "`n", "`r`n"
+Set-Content -Path $pkgPath -Value $finalPkg -NoNewline -Encoding UTF8
+
+Write-Host ""
+Write-Host "==> Verificando resultado" -ForegroundColor Cyan
+$checks = @(
+    "src\lib\georadar\useGeoradarStore.ts",
+    "src\lib\georadar\mapLayers.ts",
+    "src\app\aplicaciones\georadar\MapsPanel.tsx",
+    "src\app\aplicaciones\georadar\page.tsx"
+)
+$allOk = $true
+foreach ($f in $checks) {
+    if (Test-Path $f) {
+        $hasMarker = Select-String -Path $f -Pattern "layoutMode|fullscreen|Leaflet|MapsPanel" -Quiet -ErrorAction SilentlyContinue
+        if ($hasMarker) {
+            Write-Host ("    OK: " + $f) -ForegroundColor Green
+        } else {
+            Write-Host ("    FALTA CONTENIDO: " + $f) -ForegroundColor Red
+            $allOk = $false
+        }
+    } else {
+        Write-Host ("    NO EXISTE: " + $f) -ForegroundColor Red
+        $allOk = $false
+    }
+}
+
+Write-Host ""
+if ($allOk) {
+    Write-Host "Todo correcto. Siguiente paso:" -ForegroundColor Green
+    Write-Host "  npm install"
+    Write-Host "  git add -A"
+    Write-Host '  git commit -m "feat: pantalla completa, selector de vista y mapas en Georradar"'
+    Write-Host "  git push"
+} else {
+    Write-Host "Algo fallo, revisa los mensajes en rojo antes de hacer commit." -ForegroundColor Red
 }
