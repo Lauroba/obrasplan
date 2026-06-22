@@ -254,12 +254,14 @@ export async function POST(req: NextRequest) {
       const lm = 8;
       let ly = lm;
 
-      const checkSize = 8;
-      const rowH = 14;
-      const textSize = 12;
+      const checkSize = 7;
+      const textSize = 8;
       const colW = (lw - lm * 2) / 2;
-      const textOffset = checkSize + 4;
-      const maxTextW = colW - textOffset - 4;
+      const textOffset = checkSize + 3;
+      const maxTextW = colW - textOffset - 6;
+      const lineH = 3.8;
+      const padV = 2.5;
+      const minRowH = checkSize + padV * 2;
 
       for (const cl of checklists) {
         const clItems = items.filter((i: any) => i.checklist_id === cl.id);
@@ -282,41 +284,59 @@ export async function POST(req: NextRequest) {
         const maxRows = Math.max(col1.length, col2.length);
 
         for (let row = 0; row < maxRows; row++) {
+          doc.setFontSize(textSize);
+          const lines1 = col1[row] ? doc.splitTextToSize(col1[row].texto || "", maxTextW) : [];
+          const lines2 = col2[row] ? doc.splitTextToSize(col2[row].texto || "", maxTextW) : [];
+          const numLines = Math.max(lines1.length, lines2.length, 1);
+          const rowH = Math.max(minRowH, numLines * lineH + padV * 2);
+
           if (ly + rowH > lh - 10) {
             doc.addPage("a4", "landscape"); ly = lm;
             doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(220, 38, 38);
             doc.text(cl.titulo.toUpperCase() + " (cont.)", lm, ly + 2); ly += 7;
           }
 
-          if (row % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(lm, ly - 1.5, lw - lm * 2, rowH, "F"); }
+          if (row % 2 === 0) {
+            doc.setFillColor(248, 248, 248);
+            doc.rect(lm, ly, lw - lm * 2, rowH, "F");
+          }
 
           // Column 1
           if (col1[row]) {
-            const x = lm + 2; const centerY = ly + (rowH - checkSize) / 2;
-            doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.4); doc.setFillColor(255, 255, 255);
-            doc.roundedRect(x, centerY, checkSize, checkSize, 1, 1);
-            doc.setFontSize(textSize); doc.setFont("helvetica", "normal"); doc.setTextColor(20, 20, 20);
-            const t = doc.splitTextToSize(col1[row].texto, maxTextW);
-            doc.text(t[0], x + textOffset, ly + rowH / 2 + 1);
+            const x = lm + 2;
+            const completed = col1[row].completado === true;
+            doc.setDrawColor(completed ? 34 : 160, completed ? 197 : 160, completed ? 94 : 160);
+            doc.setLineWidth(0.4);
+            doc.setFillColor(completed ? 34 : 255, completed ? 197 : 255, completed ? 94 : 255);
+            doc.roundedRect(x, ly + padV, checkSize, checkSize, 1, 1, completed ? "FD" : "D");
+            doc.setFontSize(textSize); doc.setFont("helvetica", "normal");
+            doc.setTextColor(completed ? 120 : 20, completed ? 120 : 20, completed ? 120 : 20);
+            doc.text(lines1, x + textOffset, ly + padV + lineH * 0.85);
           }
 
           // Separator
           doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
-          doc.line(lm + colW, ly - 1.5, lm + colW, ly + rowH - 1.5);
+          doc.line(lm + colW, ly, lm + colW, ly + rowH);
 
           // Column 2
           if (col2[row]) {
-            const x = lm + colW + 2; const centerY = ly + (rowH - checkSize) / 2;
-            doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.4); doc.setFillColor(255, 255, 255);
-            doc.roundedRect(x, centerY, checkSize, checkSize, 1, 1);
-            doc.setFontSize(textSize); doc.setFont("helvetica", "normal"); doc.setTextColor(20, 20, 20);
-            const t = doc.splitTextToSize(col2[row].texto, maxTextW);
-            doc.text(t[0], x + textOffset, ly + rowH / 2 + 1);
+            const x = lm + colW + 2;
+            const completed = col2[row].completado === true;
+            doc.setDrawColor(completed ? 34 : 160, completed ? 197 : 160, completed ? 94 : 160);
+            doc.setLineWidth(0.4);
+            doc.setFillColor(completed ? 34 : 255, completed ? 197 : 255, completed ? 94 : 255);
+            doc.roundedRect(x, ly + padV, checkSize, checkSize, 1, 1, completed ? "FD" : "D");
+            doc.setFontSize(textSize); doc.setFont("helvetica", "normal");
+            doc.setTextColor(completed ? 120 : 20, completed ? 120 : 20, completed ? 120 : 20);
+            doc.text(lines2, x + textOffset, ly + padV + lineH * 0.85);
           }
+
+          doc.setDrawColor(235, 235, 235); doc.setLineWidth(0.05);
+          doc.line(lm, ly + rowH, lw - lm, ly + rowH);
 
           ly += rowH;
         }
-        ly += 5;
+        ly += 6;
       }
 
       // Footers for landscape pages
