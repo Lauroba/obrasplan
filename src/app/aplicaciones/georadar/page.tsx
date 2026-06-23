@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
@@ -373,7 +373,27 @@ export default function GeoradarPage() {
 
   return (
     <AppLayout>
-      <div ref={containerRef} className={cn(store.fullscreen ? "bg-white p-4 h-screen flex flex-col" : "max-w-[1600px] mx-auto animate-fade-in")}>
+      <style>{`
+        #georadar-container:fullscreen,
+        #georadar-container:-webkit-full-screen,
+        #georadar-container:-moz-full-screen {
+          width: 100vw !important;
+          height: 100vh !important;
+          overflow: hidden;
+          background: white;
+          display: flex;
+          flex-direction: column;
+          padding: 12px;
+          box-sizing: border-box;
+        }
+        #georadar-container:fullscreen .georadar-visor,
+        #georadar-container:-webkit-full-screen .georadar-visor,
+        #georadar-container:-moz-full-screen .georadar-visor {
+          flex: 1;
+          min-height: 0;
+        }
+      `}</style>
+      <div id="georadar-container" ref={containerRef} className={cn(store.fullscreen ? "bg-white p-3 flex flex-col w-full h-full" : "max-w-[1600px] mx-auto animate-fade-in")}>
         {!store.fullscreen && (
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
@@ -386,7 +406,7 @@ export default function GeoradarPage() {
           </div>
         )}
 
-        <div className={cn("grid gap-4", store.fullscreen ? "grid-cols-1 lg:grid-cols-[260px_1fr_280px] flex-1 min-h-0" : "grid-cols-1 lg:grid-cols-[260px_1fr_280px]")}>
+        <div className={cn("grid gap-4", store.fullscreen ? "grid-cols-1 flex-1 min-h-0" : "grid-cols-1 lg:grid-cols-[260px_1fr_280px]")}>
           {!store.fullscreen && (
             <div className="space-y-4 overflow-y-auto">
               <div className="card p-4">
@@ -458,7 +478,7 @@ export default function GeoradarPage() {
             </div>
           )}
 
-          <div className={cn("card overflow-hidden flex flex-col", store.fullscreen ? "min-h-0" : "")} style={store.fullscreen ? undefined : { minHeight: 560 }}>
+          <div className={cn("card overflow-hidden flex flex-col georadar-visor", store.fullscreen ? "min-h-0 flex-1" : "")} style={store.fullscreen ? undefined : { minHeight: 560 }}>
             {/* Topbar de instrumento: contadores + selector de vista + acciones, replica compacta del original */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 border-b border-surface-100 bg-surface-50">
               <div className="flex items-center gap-3 text-[11px] font-mono text-surface-500">
