@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CalendarRange, Building2, ClipboardList,
   Users, Truck, Wrench, Package, Contact, Settings,
   ScrollText, ChevronLeft, ChevronRight,
-  Tag, Hammer, X, LayoutGrid, Radar,
+  Tag, Hammer, X, LayoutGrid, Radar, Warehouse, Users2,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useAuthStore } from "@/hooks/useAuth";
@@ -29,11 +29,15 @@ const aplicaciones = [
   { name: "Interpretación de Georradar", href: "/aplicaciones/georadar", icon: Radar, screen: "apps_georadar" },
 ];
 
+const almacen = [
+  { name: "Artículos", href: "/almacen/articulos", icon: Package, screen: "almacen_articulos" },
+  { name: "Almacenes", href: "/almacen/almacenes", icon: Warehouse, screen: "almacen_almacenes" },
+  { name: "Proveedores", href: "/almacen/proveedores", icon: Users2, screen: "almacen_proveedores" },
+];
+
 const maestros = [
   { name: "Recursos Humanos", href: "/maestros/recursos-humanos", icon: Users, screen: "maestros_rrhh" },
-  { name: "Maquinaria", href: "/maestros/maquinaria", icon: Wrench, screen: "maestros_maquinaria" },
   { name: "Vehículos", href: "/maestros/vehiculos", icon: Truck, screen: "maestros_vehiculos" },
-  { name: "Materiales", href: "/maestros/materiales", icon: Package, screen: "maestros_materiales" },
   { name: "Clientes", href: "/maestros/clientes", icon: Contact, screen: "maestros_clientes" },
   { name: "Estados de Obra", href: "/maestros/estados-obra", icon: Tag, screen: "maestros_estados" },
   { name: "Tipos de Trabajo", href: "/maestros/tipos-trabajo", icon: Hammer, screen: "maestros_tipos_trabajo" },
@@ -68,6 +72,7 @@ export default function Sidebar() {
   // Filter items by permission
   const visibleNav = navigation.filter((item) => screens.has(item.screen));
   const visibleApps = aplicaciones.filter((item) => screens.has(item.screen));
+  const visibleAlmacen = almacen.filter((item) => screens.has(item.screen));
   const visibleMaestros = maestros.filter((item) => screens.has(item.screen));
   const visibleAdmin = admin.filter((item) => screens.has(item.screen));
 
@@ -99,6 +104,12 @@ export default function Sidebar() {
           <div className="space-y-1">
             {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Aplicaciones</p>}
             {visibleApps.map((item) => <NavItem key={item.href} item={item} />)}
+          </div>
+        )}
+        {visibleAlmacen.length > 0 && (
+          <div className="space-y-1">
+            {(!collapsed || mobileMenuOpen) && <p className="px-3 mb-2 text-[11px] font-semibold text-surface-400 uppercase tracking-wider">Almacén</p>}
+            {visibleAlmacen.map((item) => <NavItem key={item.href} item={item} />)}
           </div>
         )}
         {visibleMaestros.length > 0 && (

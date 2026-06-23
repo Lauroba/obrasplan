@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -66,7 +66,8 @@ export function usePermissions() {
   const visibleScreens = useCallback((): Set<string> => {
     if (isAdmin) return new Set(["dashboard", "planificacion", "obras", "partes",
       "apps_georadar",
-      "maestros_rrhh", "maestros_maquinaria", "maestros_vehiculos", "maestros_materiales",
+      "almacen_articulos", "almacen_almacenes", "almacen_proveedores",
+      "maestros_rrhh", "maestros_vehiculos",
       "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra",
       "logs", "configuracion"]);
 
