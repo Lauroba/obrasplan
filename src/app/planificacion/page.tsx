@@ -13,7 +13,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  CalendarRange, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
+  CalendarRange, ChevronLeft, ChevronRight, Users, Truck,
   Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2, Search
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -768,13 +768,13 @@ export default function PlanificacionPage() {
                 {/* Filters */}
                 {planView === "obras" ? (
                   <div className="flex border-b border-surface-200 px-1 py-1 gap-0.5 flex-wrap">
-                    {([{ id: "all" as ResourceFilter, label: "Todo" }, { id: "humano" as ResourceFilter, icon: Users }, { id: "maquinaria" as ResourceFilter, icon: Wrench }, { id: "vehiculo" as ResourceFilter, icon: Truck }, { id: "material" as ResourceFilter, icon: Package }]).map((f) => (
+                    {([{ id: "all" as ResourceFilter, label: "Todo" }, { id: "humano" as ResourceFilter, icon: Users }, { id: "vehiculo" as ResourceFilter, icon: Truck }]).map((f) => (
                       <button key={f.id} onClick={() => setResourceFilter(f.id)} className={cn("px-1.5 py-0.5 text-[10px] font-medium rounded flex items-center gap-0.5", resourceFilter === f.id ? "bg-brand-50 text-brand-600" : "text-surface-500 hover:bg-surface-100")}>{f.icon && <f.icon className="w-3 h-3" />}{f.label || ""}</button>
                     ))}
                   </div>
                 ) : (
                   <div className="flex border-b border-surface-200 px-1 py-1 gap-0.5 flex-wrap">
-                    {([{ id: "all" as PanelFilter, label: "Todo" }, { id: "obra" as PanelFilter, icon: Building2 }, { id: "maquinaria" as PanelFilter, icon: Wrench }, { id: "vehiculo" as PanelFilter, icon: Truck }, { id: "material" as PanelFilter, icon: Package }]).map((f) => (
+                    {([{ id: "all" as PanelFilter, label: "Todo" }, { id: "obra" as PanelFilter, icon: Building2 }, { id: "vehiculo" as PanelFilter, icon: Truck }]).map((f) => (
                       <button key={f.id} onClick={() => setPanelFilter(f.id)} className={cn("px-1.5 py-0.5 text-[10px] font-medium rounded flex items-center gap-0.5", panelFilter === f.id ? "bg-brand-50 text-brand-600" : "text-surface-500 hover:bg-surface-100")}>{f.icon && <f.icon className="w-3 h-3" />}{f.label || ""}</button>
                     ))}
                   </div>
@@ -810,7 +810,7 @@ export default function PlanificacionPage() {
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo</label>
               <select value={manualForm.recurso_tipo} onChange={(e) => setManualForm({ ...manualForm, recurso_tipo: e.target.value as RecursoTipo, recurso_id: "" })} className={ic}>
-                <option value="humano">Persona</option><option value="maquinaria">Maquinaria</option><option value="vehiculo">Vehículo</option><option value="material">Material</option>
+                <option value="humano">Persona</option><option value="vehiculo">Vehículo</option>
               </select></div>
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Recurso *</label>
               <select value={manualForm.recurso_id} onChange={(e) => setManualForm({ ...manualForm, recurso_id: e.target.value })} className={ic}>
