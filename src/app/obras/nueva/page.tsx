@@ -34,7 +34,7 @@ function NuevaObraContent() {
     num_presupuesto: "", num_factura: "",
     contacto_obra_nombre: "", contacto_obra_telefono: "", contacto_obra_email: "",
     responsable_obra_id: "",
-    flag_rrhh_sin_asignar: false, flag_vehiculo_sin_asignar: false,
+
     observaciones: "", color: COLORS[Math.floor(Math.random() * COLORS.length)]
   });
 
@@ -64,8 +64,7 @@ function NuevaObraContent() {
             contacto_obra_nombre: data.contacto_obra_nombre || "", contacto_obra_telefono: data.contacto_obra_telefono || "",
             contacto_obra_email: data.contacto_obra_email || "",
             responsable_obra_id: data.responsable_obra_id || "",
-            flag_rrhh_sin_asignar: data.flag_rrhh_sin_asignar || false,
-            flag_vehiculo_sin_asignar: data.flag_vehiculo_sin_asignar || false,
+
             observaciones: data.observaciones || "", color: data.color || COLORS[0],
           });
           const { data: tipos } = await supabase.from("obra_tipos_obra").select("tipo_obra_id").eq("obra_id", editId);
@@ -94,8 +93,7 @@ function NuevaObraContent() {
         ubicacion: form.direccion || null, estado_obra_id: form.estado_obra_id || null,
         observaciones: form.observaciones || null, color: form.color,
         responsable_obra_id: form.responsable_obra_id || null,
-        flag_rrhh_sin_asignar: form.flag_rrhh_sin_asignar,
-        flag_vehiculo_sin_asignar: form.flag_vehiculo_sin_asignar,
+
       };
       if (form.direccion) payload.direccion = form.direccion;
       if (form.localidad) payload.localidad = form.localidad;
@@ -116,12 +114,6 @@ function NuevaObraContent() {
           .select().single();
         if (error) throw error;
         obraId = obra.id;
-        // Intentar crear almacen automaticamente (silencioso si falla, por ejemplo si no tiene num_presupuesto)
-        try {
-          await (supabase.rpc as any)("crear_almacen_obra", { p_obra_id: obra.id });
-        } catch {
-          // No interrumpir el flujo -- el almacen se puede crear desde la ficha de obra
-        }
       }
 
       if (obraId) {
@@ -213,28 +205,7 @@ function NuevaObraContent() {
         </div>
 
         {/* Flags especiales */}
-        <div className="card p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-surface-900">Configuración especial</h2>
-          <p className="text-xs text-surface-400">Activa estos flags para que esta obra muestre automáticamente los recursos sin asignar en el planificador.</p>
-          <div className="flex flex-col gap-3">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.flag_rrhh_sin_asignar} onChange={(e) => setForm({ ...form, flag_rrhh_sin_asignar: e.target.checked })}
-                className="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500" />
-              <div>
-                <span className="text-sm font-medium text-surface-900">RRHH Sin Asignar</span>
-                <p className="text-xs text-surface-400">Muestra automáticamente las personas no asignadas cada día laborable</p>
-              </div>
-            </label>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.flag_vehiculo_sin_asignar} onChange={(e) => setForm({ ...form, flag_vehiculo_sin_asignar: e.target.checked })}
-                className="w-4 h-4 rounded border-surface-300 text-brand-600 focus:ring-brand-500" />
-              <div>
-                <span className="text-sm font-medium text-surface-900">Vehículos Sin Asignar</span>
-                <p className="text-xs text-surface-400">Muestra automáticamente los vehículos no asignados cada día laborable</p>
-              </div>
-            </label>
-          </div>
-        </div>
+        
 
         <div className="card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-surface-900">Apariencia</h2>

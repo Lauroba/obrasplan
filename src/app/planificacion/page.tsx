@@ -13,7 +13,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  CalendarRange, ChevronLeft, ChevronRight, Users, Truck,
+  CalendarRange, ChevronLeft, ChevronRight, Users, Wrench, Truck, Package,
   Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2, Search
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -32,6 +32,7 @@ const DAY_WIDTHS: Record<ViewMode, number> = { week: 110, month: 40, year: 18 };
 const DAYS_COUNT: Record<ViewMode, number> = { week: 7, month: 31, year: 364 };
 const LABEL_W = 210;
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "vehiculo"];
+const SIN_ASIGNAR_ID = "SIN_ASIGNAR"; // ID virtual para la fila especial, nunca existe en BD
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const customCollision: CollisionDetection = (args) => {
@@ -132,6 +133,42 @@ const RrhhCell = memo(function RrhhCell({ recursoId, dateStr, personAssignments,
     </div>
   );
 });
+
+// ---- Fila SIN ASIGNAR (virtual, siempre primera, no reordenable) ----
+function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWeekend, isToday }: {
+  dateStrs: string[]; days: Date[];
+  assignGrid: Record<string, Asignacion[]>; resInfo: Record<string, ResourceInfo>;
+  onRemove: (id: string) => void; dw: number;
+  isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
+}) {
+  return (
+    <div className="flex border-b-2 border-amber-200 bg-amber-50/40">
+      <div className="shrink-0 flex items-center gap-2 border-r border-amber-200 px-3"
+        style={{ width: LABEL_W, minWidth: LABEL_W }}>
+        {/* Sin grip: no se puede reordenar */}
+        <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+        <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wide">Sin asignar</span>
+      </div>
+      {dateStrs.map((ds, i) => {
+        const day = days[i];
+        const cellAssigns = assignGrid[`${SIN_ASIGNAR_ID}|${ds}`] || [];
+        return (
+          <div key={ds} style={{ width: dw, minWidth: dw }}
+            className={cn("border-r border-amber-100 relative",
+              isToday(day) ? "bg-brand-50/20" : isWeekend(day) ? "bg-amber-50/60" : "")}>
+            <div className="relative h-full min-h-[44px]">
+              <ObraCell
+                obraId={SIN_ASIGNAR_ID} dateStr={ds}
+                assignments={cellAssigns} resInfo={resInfo}
+                onRemove={onRemove} dw={dw} hasConflict={false}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ---- Sortable Row for Vista Obras ----
 function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictCells, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved }: {
@@ -344,61 +381,51 @@ export default function PlanificacionPage() {
     return oa !== ob ? oa - ob : a.nombre.localeCompare(b.nombre, "es");
   };
 
-  // Find flag obras and merge into one
-  const rrhhFlagObra = filteredObras.find((o) => (o as any).flag_rrhh_sin_asignar);
-  const vehFlagObra = filteredObras.find((o) => (o as any).flag_vehiculo_sin_asignar);
-  const primaryFlagObra = rrhhFlagObra || vehFlagObra; // Use RRHH obra as the merged line, or vehicle if no RRHH
-  const flagIds = new Set<string>();
-  if (rrhhFlagObra) flagIds.add(rrhhFlagObra.id);
-  if (vehFlagObra) flagIds.add(vehFlagObra.id);
-  const mergedFlagObras = primaryFlagObra ? [primaryFlagObra] : [];
-
-  const conAsig = filteredObras.filter((o) => !flagIds.has(o.id) && obrasConAsignacion.has(o.id)).sort(byOrden);
-  const aPlanificar = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(byOrden);
-  const resto = filteredObras.filter((o) => !flagIds.has(o.id) && !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(byOrden);
-  const sortedObrasAll = [...mergedFlagObras, ...conAsig, ...aPlanificar, ...resto];
+  // Obras reales ordenadas (excluye obras con flags legacy que ya no se usan)
+  // Las columnas flag_rrhh_sin_asignar / flag_vehiculo_sin_asignar existen en BD
+  // pero se ignoran desde frontend (obsoletas -- la fila SIN ASIGNAR es virtual).
+  const conAsig = filteredObras.filter((o) => obrasConAsignacion.has(o.id)).sort(byOrden);
+  const aPlanificar = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && (o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(byOrden);
+  const resto = filteredObras.filter((o) => !obrasConAsignacion.has(o.id) && !(o as any).estado_custom?.nombre?.toLowerCase().includes("planificar")).sort(byOrden);
+  const sortedObrasAll = [...conAsig, ...aPlanificar, ...resto];
   const sortedObras = obraSearch ? sortedObrasAll.filter((o) => o.nombre.toLowerCase().includes(obraSearch.toLowerCase())) : sortedObrasAll;
+  // obraIds para SortableContext: excluye SIN_ASIGNAR_ID (esa fila es inmune al reorder)
   const obraIds = sortedObras.map((o) => o.id);
 
-  const primaryFlagObraId = primaryFlagObra?.id || null;
-
-  // Virtual assignments for merged "sin asignar" line (visual only)
+  // displayGrid: copia del assignGrid real + asignaciones virtuales de la fila SIN ASIGNAR.
+  // La fila SIN ASIGNAR siempre se calcula, independientemente de cualquier flag de obra.
   const displayGrid = useMemo(() => {
     const g: Record<string, Asignacion[]> = {};
     Object.entries(assignGrid).forEach(([k, v]) => { g[k] = [...v]; });
 
-    if (!primaryFlagObraId) return g;
-    const targetObraId = primaryFlagObraId;
-
     const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; });
 
-    // Add unassigned RRHH
+    // RRHH sin asignar ese dia -> aparecen en la fila SIN_ASIGNAR_ID
     rrhh.filter((r) => (r as any).asignable !== false).forEach((person) => {
       weekDays.forEach((ds) => {
         const isAssigned = asignaciones.some((a) => a.recurso_tipo === "humano" && a.recurso_id === person.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
         if (!isAssigned) {
-          const k = `${targetObraId}|${ds}`;
+          const k = `${SIN_ASIGNAR_ID}|${ds}`;
           if (!g[k]) g[k] = [];
-          g[k].push({ id: `v-rrhh-${person.id}-${ds}`, obra_id: targetObraId, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
+          g[k].push({ id: `v-rrhh-${person.id}-${ds}`, obra_id: SIN_ASIGNAR_ID, recurso_tipo: "humano", recurso_id: person.id, fecha_inicio: ds, fecha_fin: ds } as any);
         }
       });
     });
 
-    // Add unassigned vehicles (same target obra)
+    // Vehiculos sin asignar ese dia -> aparecen en la fila SIN_ASIGNAR_ID
     vehList.filter((r) => (r as any).asignable !== false).forEach((veh) => {
       weekDays.forEach((ds) => {
         const isAssigned = asignaciones.some((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === veh.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
         if (!isAssigned) {
-          const k = `${targetObraId}|${ds}`;
+          const k = `${SIN_ASIGNAR_ID}|${ds}`;
           if (!g[k]) g[k] = [];
-          g[k].push({ id: `v-veh-${veh.id}-${ds}`, obra_id: targetObraId, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
+          g[k].push({ id: `v-veh-${veh.id}-${ds}`, obra_id: SIN_ASIGNAR_ID, recurso_tipo: "vehiculo", recurso_id: veh.id, fecha_inicio: ds, fecha_fin: ds } as any);
         }
       });
     });
 
     return g;
-  }, [assignGrid, primaryFlagObraId, rrhh, vehList, dateStrs, asignaciones]);
-  // obraIds computed above with sortedObras
+  }, [assignGrid, rrhh, vehList, dateStrs, asignaciones]);
 
   const navigate = (dir: number) => { const d = new Date(startDate); d.setDate(d.getDate() + dir * (viewMode === "week" ? 7 : viewMode === "month" ? 31 : 90)); setStartDate(d); };
   const goToday = () => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); setStartDate(new Date(d.getFullYear(), d.getMonth(), d.getDate())); };
@@ -416,6 +443,12 @@ export default function PlanificacionPage() {
       const [tipo, recursoId] = aid.replace("res-", "").split("|");
       const [obraId, dateStr] = oid.replace("cell-", "").split("|");
       if (!tipo || !recursoId || !obraId || !dateStr) return;
+      // Drop sobre celda SIN_ASIGNAR -> eliminar la asignacion real si existe
+      if (obraId === SIN_ASIGNAR_ID) {
+        const realAssig = asignaciones.find((a) => a.recurso_tipo === tipo && a.recurso_id === recursoId && a.fecha_inicio <= dateStr && a.fecha_fin >= dateStr);
+        if (realAssig) { await supabase.from("asignaciones").delete().eq("id", realAssig.id); fetchData(); }
+        return;
+      }
       const existing = assignGrid[`${obraId}|${dateStr}`]?.find((a) => a.recurso_tipo === tipo && a.recurso_id === recursoId);
       if (existing) return;
       await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: tipo as RecursoTipo, recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
@@ -452,6 +485,8 @@ export default function PlanificacionPage() {
     if (!aid.startsWith("res-") && !aid.startsWith("cell-") && !aid.startsWith("panel-") && !aid.startsWith("prow-") &&
         !oid.startsWith("cell-") && !oid.startsWith("res-") && !oid.startsWith("panel-") && !oid.startsWith("prow-")) {
       if (aid === oid) return;
+      // SIN_ASIGNAR_ID es inmune al reorder
+      if (aid === SIN_ASIGNAR_ID || oid === SIN_ASIGNAR_ID) return;
       const oldIdx = obraIds.indexOf(aid); const newIdx = obraIds.indexOf(oid);
       if (oldIdx === -1 || newIdx === -1) return;
       const newOrder = arrayMove(obraIds, oldIdx, newIdx);
@@ -713,17 +748,26 @@ export default function PlanificacionPage() {
 
                   {/* ===== VISTA OBRAS ===== */}
                   {planView === "obras" && (
-                    <SortableContext key={obraIds.join(",")} items={obraIds} strategy={verticalListSortingStrategy}>
-                      {sortedObras.map((obra) => (
-                        <ObraRow key={obra.id} obra={obra} dateStrs={dateStrs} days={days}
-                          assignGrid={displayGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
-                          conflictCells={conflictCells} onRemove={handleRemove} onArchive={handleArchive}
-                          onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
-                          onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
-                          estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
-                          notas={notas} onNoteSaved={fetchData} />
-                      ))}
-                    </SortableContext>
+                    <>
+                      {/* Fila SIN ASIGNAR: siempre la primera, virtual, no reordenable */}
+                      <SinAsignarRow
+                        dateStrs={dateStrs} days={days}
+                        assignGrid={displayGrid} resInfo={resInfo}
+                        onRemove={handleRemove} dw={dw}
+                        isWeekend={isWeekendFn} isToday={isTodayFn}
+                      />
+                      <SortableContext key={obraIds.join(",")} items={obraIds} strategy={verticalListSortingStrategy}>
+                        {sortedObras.map((obra) => (
+                          <ObraRow key={obra.id} obra={obra} dateStrs={dateStrs} days={days}
+                            assignGrid={displayGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
+                            conflictCells={conflictCells} onRemove={handleRemove} onArchive={handleArchive}
+                            onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
+                            onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
+                            estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
+                            notas={notas} onNoteSaved={fetchData} />
+                        ))}
+                      </SortableContext>
+                    </>
                   )}
 
                   {/* ===== VISTA RRHH ===== */}
@@ -768,13 +812,13 @@ export default function PlanificacionPage() {
                 {/* Filters */}
                 {planView === "obras" ? (
                   <div className="flex border-b border-surface-200 px-1 py-1 gap-0.5 flex-wrap">
-                    {([{ id: "all" as ResourceFilter, label: "Todo" }, { id: "humano" as ResourceFilter, icon: Users }, { id: "vehiculo" as ResourceFilter, icon: Truck }]).map((f) => (
+                    {([{ id: "all" as ResourceFilter, label: "Todo" }, { id: "humano" as ResourceFilter, icon: Users }, { id: "maquinaria" as ResourceFilter, icon: Wrench }, { id: "vehiculo" as ResourceFilter, icon: Truck }, { id: "material" as ResourceFilter, icon: Package }]).map((f) => (
                       <button key={f.id} onClick={() => setResourceFilter(f.id)} className={cn("px-1.5 py-0.5 text-[10px] font-medium rounded flex items-center gap-0.5", resourceFilter === f.id ? "bg-brand-50 text-brand-600" : "text-surface-500 hover:bg-surface-100")}>{f.icon && <f.icon className="w-3 h-3" />}{f.label || ""}</button>
                     ))}
                   </div>
                 ) : (
                   <div className="flex border-b border-surface-200 px-1 py-1 gap-0.5 flex-wrap">
-                    {([{ id: "all" as PanelFilter, label: "Todo" }, { id: "obra" as PanelFilter, icon: Building2 }, { id: "vehiculo" as PanelFilter, icon: Truck }]).map((f) => (
+                    {([{ id: "all" as PanelFilter, label: "Todo" }, { id: "obra" as PanelFilter, icon: Building2 }, { id: "maquinaria" as PanelFilter, icon: Wrench }, { id: "vehiculo" as PanelFilter, icon: Truck }, { id: "material" as PanelFilter, icon: Package }]).map((f) => (
                       <button key={f.id} onClick={() => setPanelFilter(f.id)} className={cn("px-1.5 py-0.5 text-[10px] font-medium rounded flex items-center gap-0.5", panelFilter === f.id ? "bg-brand-50 text-brand-600" : "text-surface-500 hover:bg-surface-100")}>{f.icon && <f.icon className="w-3 h-3" />}{f.label || ""}</button>
                     ))}
                   </div>
@@ -810,7 +854,7 @@ export default function PlanificacionPage() {
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo</label>
               <select value={manualForm.recurso_tipo} onChange={(e) => setManualForm({ ...manualForm, recurso_tipo: e.target.value as RecursoTipo, recurso_id: "" })} className={ic}>
-                <option value="humano">Persona</option><option value="vehiculo">Vehículo</option>
+                <option value="humano">Persona</option><option value="maquinaria">Maquinaria</option><option value="vehiculo">Vehículo</option><option value="material">Material</option>
               </select></div>
             <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Recurso *</label>
               <select value={manualForm.recurso_id} onChange={(e) => setManualForm({ ...manualForm, recurso_id: e.target.value })} className={ic}>
