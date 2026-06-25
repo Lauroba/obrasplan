@@ -116,6 +116,12 @@ function NuevaObraContent() {
           .select().single();
         if (error) throw error;
         obraId = obra.id;
+        // Intentar crear almacen automaticamente (silencioso si falla, por ejemplo si no tiene num_presupuesto)
+        try {
+          await (supabase.rpc as any)("crear_almacen_obra", { p_obra_id: obra.id });
+        } catch {
+          // No interrumpir el flujo -- el almacen se puede crear desde la ficha de obra
+        }
       }
 
       if (obraId) {

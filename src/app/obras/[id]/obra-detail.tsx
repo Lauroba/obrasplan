@@ -38,6 +38,8 @@ export default function ObraDetallePage() {
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [partes, setPartes] = useState<any[]>([]);
   const [stockObra, setStockObra] = useState<any[]>([]);
+  const [almacenObraId, setAlmacenObraId] = useState<string | null>(null);
+  const [creandoAlmacen, setCreandoAlmacen] = useState(false);
   const [tiposObra, setTiposObra] = useState<any[]>([]);
   const [obraTipos, setObraTipos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,8 +84,12 @@ export default function ObraDetallePage() {
     try {
       const { data: almacenObraR } = await (supabase.from("almacenes") as any).select("id").eq("obra_id", id).eq("activo", true).maybeSingle();
       if (almacenObraR?.id) {
+        setAlmacenObraId(almacenObraR.id);
         const { data: stockR } = await (supabase.from("v_stock_actual") as any).select("*").eq("almacen_id", almacenObraR.id);
         setStockObra(stockR || []);
+      } else {
+        setAlmacenObraId(null);
+        setStockObra([]);
       }
     } catch { /* tabla almacen puede no existir aun */ }
     setObraTipos((obraTiposRes.data || []).map((t: any) => t.tipo_obra_id));
@@ -405,40 +411,73 @@ export default function ObraDetallePage() {
 
         {tab === "almacen" && (
           <div className="space-y-4">
-            {stockObra.length === 0 ? (
-              <div className="card p-8 text-center text-sm text-surface-400">
-                <p>Esta obra no tiene un almacen asociado o no tiene stock registrado.</p>
-                <p className="text-xs mt-2">Ve a Almacen → Almacenes y crea un almacen con esta obra para empezar a registrar stock.</p>
+            {!almacenObraId ? (
+              <div className="card p-8 text-center">
+                <p className="text-sm text-surface-500 mb-4">Esta obra no tiene un almacén asociado.</p>
+                {user?.role === "admin" && (
+                  <button
+                    disabled={creandoAlmacen}
+                    onClick={async () => {
+                      setCreandoAlmacen(true);
+                      try {
+                        const { data, error } = await (supabase.rpc as any)("crear_almacen_obra", { p_obra_id: id });
+                        if (error) throw error;
+                        fetchData();
+                      } catch (err: any) {
+                        alert("Error: " + (err?.message || err));
+                      } finally { setCreandoAlmacen(false); }
+                    }}
+                    className="flex items-center gap-2 mx-auto px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+                    {creandoAlmacen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package2 className="w-4 h-4" />}
+                    Crear almacén de esta obra
+                  </button>
+                )}
+                <p className="text-xs text-surface-400 mt-3">
+                  El código del almacén se genera como OBRA-{(obra as any)?.num_presupuesto || "[num_presupuesto]"}.
+                  La obra debe tener número de presupuesto.
+                </p>
               </div>
             ) : (
               <div className="card overflow-hidden">
-                <div className="px-4 py-3 border-b border-surface-100 bg-surface-50">
-                  <h3 className="text-sm font-semibold text-surface-700">Stock del almacen de la obra</h3>
+                <div className="px-4 py-3 border-b border-surface-100 bg-surface-50 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-surface-700">Stock del almacén de la obra</h3>
+                  <a href={"/almacen/almacenes/" + almacenObraId}
+                    className="text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    Ver detalle completo →
+                  </a>
                 </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-surface-100">
-                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Articulo</th>
-                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Cod. articulo</th>
-                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Tipo</th>
-                      <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stock</th>
-                      <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Min.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stockObra.map((s: any, i: number) => (
-                      <tr key={i} className={cn("border-b border-surface-50", s.bajo_minimo ? "bg-red-50/50" : "hover:bg-surface-50/50")}>
-                        <td className="px-4 py-2.5 font-medium text-surface-900">{s.nombre}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-surface-500">{s.codigo_articulo}</td>
-                        <td className="px-4 py-2.5 text-xs text-surface-500">{s.tipo}</td>
-                        <td className={cn("px-4 py-2.5 text-right font-mono text-sm font-semibold", s.bajo_minimo ? "text-red-600" : "text-surface-900")}>
-                          {Number(s.stock_qty).toFixed(2)} {s.unidad}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-xs text-surface-400">{Number(s.stock_minimo_def).toFixed(2)}</td>
+                {stockObra.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-surface-400">Sin stock registrado todavía</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface-100">
+                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Artículo</th>
+                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden md:table-cell">Cód. artículo</th>
+                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Tipo</th>
+                        <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stock</th>
+                        <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden sm:table-cell">Mín.</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {stockObra.map((s: any, i: number) => (
+                        <tr key={i} className={cn("border-b border-surface-50",
+                          s.stock_negativo ? "bg-red-50/40" : s.bajo_minimo ? "bg-amber-50/30" : "hover:bg-surface-50/50")}>
+                          <td className="px-4 py-2.5 font-medium text-surface-900 text-xs">{s.nombre}</td>
+                          <td className="px-4 py-2.5 font-mono text-[10px] text-surface-500 hidden md:table-cell">{s.codigo_articulo}</td>
+                          <td className="px-4 py-2.5 text-xs text-surface-500">{s.tipo}</td>
+                          <td className={cn("px-4 py-2.5 text-right font-mono text-sm font-semibold",
+                            s.stock_negativo ? "text-red-600" : s.bajo_minimo ? "text-amber-600" : "text-surface-900")}>
+                            {Number(s.stock_qty).toFixed(2)} <span className="text-[10px] font-normal">{s.unidad}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-xs text-surface-400 hidden sm:table-cell">
+                            {s.stock_minimo_def > 0 ? Number(s.stock_minimo_def).toFixed(2) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             )}
           </div>
