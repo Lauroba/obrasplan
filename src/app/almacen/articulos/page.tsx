@@ -11,10 +11,10 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
 
-const TIPOS = ["material", "maquinaria", "vehiculo", "otro"];
 const empty = {
   referencia_proveedor: "", codigo_articulo: "", codigo_barras: "",
-  nombre: "", tipo: "material", proveedor_id: "",
+  nombre: "", tipo: "material", tipo_articulo_id: "",
+  proveedor_id: "",
   unidad: "ud", stock_minimo: "0", caducidad: "", descripcion: "",
 };
 const ic = "w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20";
@@ -27,6 +27,7 @@ export default function ArticulosPage() {
 
   const [data, setData] = useState<any[]>([]);
   const [proveedores, setProveedores] = useState<any[]>([]);
+  const [tiposArticulo, setTiposArticulo] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [tipoFilter, setTipoFilter] = useState("");
@@ -40,12 +41,18 @@ export default function ArticulosPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [aR, pR] = await Promise.all([
-      (supabase.from("articulos") as any).select("*, proveedor:proveedores(nombre)").eq("activo", true).order("nombre"),
+    const [aR, pR, tR] = await Promise.all([
+      (supabase.from("articulos") as any).select("*, proveedor:proveedores(nombre), tipo_art:tipos_articulo(id,nombre,activo,orden)").eq("activo", true).order("nombre"),
       (supabase.from("proveedores") as any).select("id, nombre").eq("activo", true).order("nombre"),
+      // Tipos activos + los inactivos que tengan articulos asociados
+      (supabase.from("tipos_articulo") as any).select("id, nombre, activo, orden").order("orden").order("nombre"),
     ]);
     setData(aR.data || []);
     setProveedores(pR.data || []);
+    // Mostrar tipos activos + tipos inactivos con articulos asociados
+    const allTipos: any[] = tR.data || [];
+    const tiposConArticulos = new Set((aR.data || []).map((a: any) => a.tipo_articulo_id).filter(Boolean));
+    setTiposArticulo(allTipos.filter((t) => t.activo || tiposConArticulos.has(t.id)));
     setLoading(false);
   }, []);
 
@@ -57,7 +64,7 @@ export default function ArticulosPage() {
       a.codigo_articulo?.toLowerCase().includes(search.toLowerCase()) ||
       a.referencia_proveedor?.toLowerCase().includes(search.toLowerCase()) ||
       a.codigo_barras?.toLowerCase().includes(search.toLowerCase());
-    const matchTipo = !tipoFilter || a.tipo === tipoFilter;
+    const matchTipo = !tipoFilter || a.tipo_articulo_id === tipoFilter;
     return matchSearch && matchTipo;
   });
 
@@ -70,6 +77,7 @@ export default function ArticulosPage() {
         codigo_articulo: form.codigo_articulo || undefined,
         codigo_barras: form.codigo_barras || undefined,
         proveedor_id: form.proveedor_id || null,
+        tipo_articulo_id: form.tipo_articulo_id || null,
         caducidad: form.caducidad || null,
         stock_minimo: parseFloat(form.stock_minimo) || 0,
       };
@@ -95,6 +103,7 @@ export default function ArticulosPage() {
       codigo_barras: a.codigo_barras || "",
       nombre: a.nombre || "",
       tipo: a.tipo || "material",
+      tipo_articulo_id: a.tipo_articulo_id || "",
       proveedor_id: a.proveedor_id || "",
       unidad: a.unidad || "ud",
       stock_minimo: String(a.stock_minimo ?? 0),
@@ -156,7 +165,7 @@ export default function ArticulosPage() {
           nombre: get("nombre") || "",
           codigo_articulo: get("codigo_articulo") || undefined,
           codigo_barras: get("codigo_barras") || undefined,
-          tipo: TIPOS.includes(get("tipo") || "") ? get("tipo") : "material",
+          tipo: get("tipo") || "material",  // campo legacy, se mantiene para compatibilidad
           unidad: get("unidad") || "ud",
           stock_minimo: parseFloat(get("stock_minimo") || "0") || 0,
           caducidad: get("caducidad") || null,
@@ -244,7 +253,11 @@ export default function ArticulosPage() {
             <select value={tipoFilter} onChange={(e) => setTipoFilter(e.target.value)}
               className="px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none">
               <option value="">Todos los tipos</option>
-              {TIPOS.map((t) => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              {tiposArticulo.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}{!t.activo ? " (inactivo)" : ""}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -280,7 +293,7 @@ export default function ArticulosPage() {
                           a.tipo === "maquinaria" ? "bg-orange-100 text-orange-700" :
                           a.tipo === "vehiculo" ? "bg-purple-100 text-purple-700" :
                           "bg-surface-100 text-surface-600"
-                        )}>{a.tipo}</span>
+                        )}>{a.tipo_art?.nombre || a.tipo}</span>
                       </td>
                       <td className="px-4 py-2.5 text-surface-600 hidden lg:table-cell text-xs">{a.proveedor?.nombre || "—"}</td>
                       <td className="px-4 py-2.5 text-xs text-surface-500">{a.unidad}</td>
@@ -325,9 +338,12 @@ export default function ArticulosPage() {
             <div><label className="block text-xs font-medium text-surface-600 mb-1">Nombre *</label><input required className={ic} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} /></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="block text-xs font-medium text-surface-600 mb-1">Tipo</label>
-              <select className={ic} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-                {TIPOS.map((t) => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+            <div><label className="block text-xs font-medium text-surface-600 mb-1">Tipo de artículo</label>
+              <select className={ic} value={form.tipo_articulo_id} onChange={(e) => setForm({ ...form, tipo_articulo_id: e.target.value })}>
+                <option value="">Sin tipo</option>
+                {tiposArticulo.filter((t) => t.activo).map((t) => (
+                  <option key={t.id} value={t.id}>{t.nombre}</option>
+                ))}
               </select>
             </div>
             <div><label className="block text-xs font-medium text-surface-600 mb-1">Unidad</label><input className={ic} value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })} placeholder="ud, kg, m..." /></div>

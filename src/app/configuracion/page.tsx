@@ -16,6 +16,7 @@ const PANTALLAS = [
   { id: "obras", label: "Obras" },
   { id: "partes", label: "Partes" },
   { id: "almacen_articulos", label: "Almacén - Artículos" },
+  { id: "almacen_tipos_articulo", label: "Almacén - Tipos de artículo" },
   { id: "almacen_almacenes", label: "Almacén - Almacenes" },
   { id: "almacen_proveedores", label: "Almacén - Proveedores" },
   { id: "almacen_movimientos", label: "Almacén - Movimientos" },

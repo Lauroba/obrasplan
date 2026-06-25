@@ -14,6 +14,7 @@ const PATH_TO_SCREEN: Record<string, string> = {
   "/aplicaciones/georadar": "apps_georadar",
   "/maestros/recursos-humanos": "maestros_rrhh",
   "/almacen/articulos": "almacen_articulos",
+  "/almacen/tipos-articulo": "almacen_tipos_articulo",
   "/almacen/almacenes": "almacen_almacenes",
   "/almacen/proveedores": "almacen_proveedores",
   "/almacen/movimientos": "almacen_movimientos",

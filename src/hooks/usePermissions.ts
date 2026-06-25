@@ -66,7 +66,7 @@ export function usePermissions() {
   const visibleScreens = useCallback((): Set<string> => {
     if (isAdmin) return new Set(["dashboard", "planificacion", "obras", "partes",
       "apps_georadar",
-      "almacen_articulos", "almacen_almacenes", "almacen_proveedores", "almacen_movimientos",
+      "almacen_articulos", "almacen_tipos_articulo", "almacen_almacenes", "almacen_proveedores", "almacen_movimientos",
       "maestros_rrhh", "maestros_vehiculos",
       "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra",
       "logs", "configuracion"]);
