@@ -10,7 +10,7 @@ import { useEffect } from "react";
 import { cn } from "@/lib/utils/cn";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
   const { sidebarCollapsed } = useLayoutStore();
   const router = useRouter();
 
@@ -18,10 +18,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useRouteGuard();
 
   useEffect(() => {
-    if (!loading && !user) router.push("/login");
-  }, [loading, user, router]);
+    if (!isLoading && !user) router.push("/login");
+  }, [isLoading, user, router]);
 
-  if (loading) return <div className="flex items-center justify-center h-screen"><div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (isLoading) return <div className="flex items-center justify-center h-screen"><div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (!user) return null;
 
   return (

@@ -25,27 +25,51 @@ export function usePermissions() {
   const { user } = useAuthStore();
   const supabase = createClient();
   const [permisos, setPermisos] = useState<Permisos[]>([]);
+  const [isAdminFromRole, setIsAdminFromRole] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  const isAdmin = user?.role === "admin";
+  // Admin si el campo role = "admin" O si el rol vinculado tiene is_admin = true
+  const isAdmin = user?.role === "admin" || isAdminFromRole;
 
   useEffect(() => {
     if (!user?.id) return;
-    if (isAdmin) { setLoaded(true); return; }
 
-    // Fetch permissions for user's role
     const fetchPermisos = async () => {
-      // Get user's rol_id
-      const { data: userData } = await supabase.from("users").select("rol_id").eq("id", user.id).single();
-      if (userData?.rol_id) {
-        const { data } = await supabase.from("rol_permisos").select("*").eq("rol_id", userData.rol_id);
+      // Leer rol_id y role actualizados desde la BD (no solo desde el store cacheado)
+      const { data: userData } = await supabase
+        .from("users")
+        .select("rol_id, role")
+        .eq("id", user.id)
+        .single();
+
+      if (!userData) { setLoaded(true); return; }
+
+      // Comprobar si el rol vinculado es admin aunque users.role no diga "admin"
+      if (userData.rol_id) {
+        const { data: rolData } = await supabase
+          .from("roles")
+          .select("is_admin")
+          .eq("id", userData.rol_id)
+          .single();
+        if (rolData?.is_admin) {
+          setIsAdminFromRole(true);
+          setLoaded(true);
+          return;
+        }
+        // Si no es admin, cargar permisos granulares
+        const { data } = await supabase
+          .from("rol_permisos")
+          .select("*")
+          .eq("rol_id", userData.rol_id);
         setPermisos(data || []);
       }
+
+      // Fallback: users.role = "admin" ya lo cubre isAdmin arriba
       setLoaded(true);
     };
 
     fetchPermisos();
-  }, [user?.id, isAdmin]);
+  }, [user?.id]);
 
   const canAccess = useCallback((pantalla: string): boolean => {
     if (isAdmin) return true;
