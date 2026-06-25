@@ -7,8 +7,8 @@ import { useEffect, useState, useCallback } from "react";
 import type { RecursoTipo } from "@/lib/types/database";
 import {
   CheckCircle2, Clock, AlertTriangle, ListTodo,
-  Building2, ClipboardList, Users, Wrench, Truck, Calendar,
-  Loader2, ChevronLeft, ChevronRight
+  Building2, ClipboardList, Users, Truck, Calendar,
+  Loader2, ChevronLeft, ChevronRight, Warehouse, TrendingDown
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [checklistItems, setChecklistItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [taskFilter, setTaskFilter] = useState<"mine" | "all">("mine");
+  const [alertasAlmacen, setAlertasAlmacen] = useState<any[]>([]);
 
   // Assignments panel state
   const [assigView, setAssigView] = useState<AssigView>("dia");
@@ -53,7 +54,7 @@ export default function DashboardPage() {
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
         supabase.from("asignaciones").select("*"),
         supabase.from("recursos_humanos").select("id, nombre").eq("activo", true),
-        supabase.from("maquinaria").select("id, nombre"),
+        Promise.resolve({ data: [] }),  // maquinaria eliminada del planificador
         supabase.from("vehiculos").select("id, nombre"),
         supabase.from("conflictos_revisados").select("recurso_tipo, recurso_id, fecha"),
         user?.id ? supabase.from("partes_diarios").select("obra_id, fecha, estado").eq("created_by", user.id) : Promise.resolve({ data: [] as any[] }),
@@ -93,7 +94,7 @@ export default function DashboardPage() {
       // Conflicts
       const nameMap: Record<string, string> = {};
       (rrhhR.data || []).forEach((r: any) => nameMap[`humano|${r.id}`] = r.nombre);
-      (maqR.data || []).forEach((r: any) => nameMap[`maquinaria|${r.id}`] = r.nombre);
+      // maquinaria eliminada del planificador
       (vehR.data || []).forEach((r: any) => nameMap[`vehiculo|${r.id}`] = r.nombre);
 
       const rdm: Record<string, { obraId: string }[]> = {};
@@ -119,6 +120,11 @@ export default function DashboardPage() {
         }
       });
       setConflicts(cList.slice(0, 10));
+      // Alertas almacen
+      try {
+        const { data: alertasData } = await supabase.from("v_alertas_almacen" as any).select("*").limit(8);
+        setAlertasAlmacen(alertasData || []);
+      } catch { /* tabla puede no existir si no se ejecuto la migracion 030 */ }
       setLoading(false);
     };
     fetchAll();
@@ -186,7 +192,7 @@ export default function DashboardPage() {
   const goToday = () => setAssigDate(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
   const prioColors: Record<string, string> = { alta: "bg-red-100 text-red-700", media: "bg-amber-100 text-amber-700", baja: "bg-blue-100 text-blue-700" };
-  const tipoIcon: Record<RecursoTipo, typeof Users> = { humano: Users, maquinaria: Wrench, vehiculo: Truck, material: ListTodo };
+  const tipoIcon: Record<string, typeof Users> = { humano: Users, vehiculo: Truck };
   const getDateColor = (f: string | null) => { if (!f) return ""; const d = (new Date(f).getTime() - Date.now()) / 86400000; if (d < 0) return "text-red-600 bg-red-50"; if (d < 3) return "text-amber-600 bg-amber-50"; return "text-surface-600"; };
   const greeting = () => { const h = new Date().getHours(); if (h < 12) return "Buenos días"; if (h < 20) return "Buenas tardes"; return "Buenas noches"; };
 
@@ -450,6 +456,34 @@ export default function DashboardPage() {
               {obrasFiltradas.length === 0 && <p className="text-sm text-surface-400 text-center py-4">Sin obras</p>}
             </div>
           </div>
+
+          {/* Alertas de almacen */}
+          {alertasAlmacen.length > 0 && (
+            <div className="card p-4 lg:p-5 flex flex-col max-h-[320px]">
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2">
+                  <Warehouse className="w-4 h-4 text-amber-500" />Alertas de almacen
+                </h2>
+                <span className="text-xs text-surface-400">{alertasAlmacen.length}</span>
+              </div>
+              <div className="space-y-1.5 overflow-y-auto flex-1">
+                {alertasAlmacen.map((a: any, i: number) => (
+                  <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-100">
+                    <TrendingDown className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-surface-900 truncate">{a.nombre}</p>
+                      <p className="text-[10px] text-surface-500">{a.almacen_nombre}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5">
+                      {a.alerta_stock && <span className="badge text-[9px] bg-red-100 text-red-700">Stock: {Number(a.stock_qty).toFixed(1)} / min {Number(a.stock_minimo_def).toFixed(1)}</span>}
+                      {a.alerta_caducidad === "caducado" && <span className="badge text-[9px] bg-red-100 text-red-700">Caducado</span>}
+                      {a.alerta_caducidad === "caduca_pronto" && <span className="badge text-[9px] bg-amber-100 text-amber-700">Caduca pronto</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Partes sin firmar */}
           <div className="card p-4 lg:p-5 flex flex-col max-h-[380px]">

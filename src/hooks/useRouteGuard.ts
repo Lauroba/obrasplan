@@ -16,6 +16,7 @@ const PATH_TO_SCREEN: Record<string, string> = {
   "/almacen/articulos": "almacen_articulos",
   "/almacen/almacenes": "almacen_almacenes",
   "/almacen/proveedores": "almacen_proveedores",
+  "/almacen/movimientos": "almacen_movimientos",
   "/maestros/vehiculos": "maestros_vehiculos",
   "/maestros/clientes": "maestros_clientes",
   "/maestros/estados-obra": "maestros_estados",

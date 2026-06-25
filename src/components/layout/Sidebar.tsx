@@ -5,9 +5,9 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   LayoutDashboard, CalendarRange, Building2, ClipboardList,
-  Users, Truck, Wrench, Package, Contact, Settings,
+  Users, Truck, Package, Contact, Settings,
   ScrollText, ChevronLeft, ChevronRight,
-  Tag, Hammer, X, LayoutGrid, Radar, Warehouse, Users2,
+  Tag, Hammer, X, LayoutGrid, Radar, Warehouse, Users2, ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useAuthStore } from "@/hooks/useAuth";
@@ -33,6 +33,7 @@ const almacen = [
   { name: "Artículos", href: "/almacen/articulos", icon: Package, screen: "almacen_articulos" },
   { name: "Almacenes", href: "/almacen/almacenes", icon: Warehouse, screen: "almacen_almacenes" },
   { name: "Proveedores", href: "/almacen/proveedores", icon: Users2, screen: "almacen_proveedores" },
+  { name: "Movimientos", href: "/almacen/movimientos", icon: ArrowLeftRight, screen: "almacen_movimientos" },
 ];
 
 const maestros = [

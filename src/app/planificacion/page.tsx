@@ -22,16 +22,16 @@ import CellNote from "@/components/planificacion/CellNote";
 
 type PlanView = "obras" | "rrhh";
 type ViewMode = "week" | "month" | "year";
-type ResourceFilter = "all" | "humano" | "maquinaria" | "vehiculo" | "material";
-type PanelFilter = "all" | "obra" | "maquinaria" | "vehiculo" | "material";
+type ResourceFilter = "all" | "humano" | "vehiculo";
+type PanelFilter = "all" | "obra" | "vehiculo";
 type ResourceInfo = { nombre: string; foto_url: string | null; tipo: RecursoTipo; initials: string };
 
-const TIPO_ICON: Record<string, typeof Users> = { humano: Users, maquinaria: Wrench, vehiculo: Truck, material: Package, obra: Building2 };
-const TIPO_BG: Record<string, string> = { humano: "bg-violet-100 text-violet-700", maquinaria: "bg-amber-100 text-amber-700", vehiculo: "bg-teal-100 text-teal-700", material: "bg-blue-100 text-blue-700", obra: "bg-brand-100 text-brand-700" };
+const TIPO_ICON: Record<string, typeof Users> = { humano: Users, vehiculo: Truck, obra: Building2 };
+const TIPO_BG: Record<string, string> = { humano: "bg-violet-100 text-violet-700", vehiculo: "bg-teal-100 text-teal-700", obra: "bg-brand-100 text-brand-700" };
 const DAY_WIDTHS: Record<ViewMode, number> = { week: 110, month: 40, year: 18 };
 const DAYS_COUNT: Record<ViewMode, number> = { week: 7, month: 31, year: 364 };
 const LABEL_W = 210;
-const CONFLICT_TYPES: RecursoTipo[] = ["humano", "maquinaria", "vehiculo"];
+const CONFLICT_TYPES: RecursoTipo[] = ["humano", "vehiculo"];
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const customCollision: CollisionDetection = (args) => {
@@ -225,8 +225,8 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
 export default function PlanificacionPage() {
   const supabase = createClient();
   const [obras, setObras] = useState<Obra[]>([]); const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
-  const [rrhh, setRrhh] = useState<RecursoHumano[]>([]); const [maqList, setMaqList] = useState<Maquinaria[]>([]);
-  const [vehList, setVehList] = useState<Vehiculo[]>([]); const [matList, setMatList] = useState<Material[]>([]);
+  const [rrhh, setRrhh] = useState<RecursoHumano[]>([]);
+  const [vehList, setVehList] = useState<Vehiculo[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [loading, setLoading] = useState(true);
   const [planView, setPlanView] = useState<PlanView>("obras");
@@ -250,23 +250,21 @@ export default function PlanificacionPage() {
   const [activeDrag, setActiveDrag] = useState<{ nombre: string; foto_url?: string | null; color?: string; iconType: string } | null>(null);
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
   const [manualModal, setManualModal] = useState<{ obraId: string; obraName: string } | null>(null);
-  const [manualForm, setManualForm] = useState({ recurso_tipo: "humano" as RecursoTipo, recurso_id: "", fecha_inicio: "", fecha_fin: "" });
+  const [manualForm, setManualForm] = useState({ recurso_tipo: "humano" as RecursoTipo, recurso_id: "", fecha_inicio: "", fecha_fin: "" }); // maquinaria y material eliminados del planificador
   const [manualSaving, setManualSaving] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [oR, aR, hR, mR, vR, tR, eR] = await Promise.all([
+    const [oR, aR, hR, vR, eR] = await Promise.all([
       supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").order("orden_gantt"),
       supabase.from("asignaciones").select("*"),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("orden_planificacion" as any, { ascending: true }).order("nombre"),
-      supabase.from("maquinaria").select("*").eq("activo", true).order("nombre"),
       supabase.from("vehiculos").select("*").eq("activo", true).order("nombre"),
-      supabase.from("materiales").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
     ]);
     setObras((oR.data as Obra[]) || []); setAsignaciones(aR.data || []);
-    setRrhh(hR.data || []); setMaqList(mR.data || []); setVehList(vR.data || []); setMatList(tR.data || []);
+    setRrhh(hR.data || []); setVehList(vR.data || []);
     setEstados(eR.data || []); setLoading(false);
     // Fetch notas (resilient - table might not exist yet)
     try {
@@ -281,11 +279,9 @@ export default function PlanificacionPage() {
   const resInfo = useMemo(() => {
     const m: Record<string, ResourceInfo> = {};
     rrhh.forEach((r) => m[`humano|${r.id}`] = { nombre: r.nombre, foto_url: r.foto_url, tipo: "humano", initials: r.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() });
-    maqList.forEach((r) => m[`maquinaria|${r.id}`] = { nombre: r.nombre, foto_url: r.foto_url, tipo: "maquinaria", initials: r.nombre.slice(0, 2).toUpperCase() });
     vehList.forEach((r) => m[`vehiculo|${r.id}`] = { nombre: r.nombre, foto_url: r.foto_url, tipo: "vehiculo", initials: r.nombre.slice(0, 2).toUpperCase() });
-    matList.forEach((r) => m[`material|${r.id}`] = { nombre: r.nombre, foto_url: r.foto_url, tipo: "material", initials: r.nombre.slice(0, 2).toUpperCase() });
     return m;
-  }, [rrhh, maqList, vehList, matList]);
+  }, [rrhh, vehList]);
 
   const dw = DAY_WIDTHS[viewMode]; const daysN = DAYS_COUNT[viewMode];
   const days = useMemo(() => { const a: Date[] = []; for (let i = 0; i < daysN; i++) { const d = new Date(startDate); d.setDate(d.getDate() + i); a.push(d); } return a; }, [startDate, daysN]);
@@ -438,7 +434,7 @@ export default function PlanificacionPage() {
     }
 
     // ---- Vista RRHH: drop maq/veh/mat on person cell (assign to person's obra that day) ----
-    if ((aid.startsWith("panel-maquinaria|") || aid.startsWith("panel-vehiculo|") || aid.startsWith("panel-material|")) && oid.startsWith("cell-")) {
+    if (aid.startsWith("panel-vehiculo|") && oid.startsWith("cell-")) {
       const parts = aid.replace("panel-", "").split("|");
       const tipo = parts[0] as RecursoTipo; const recursoId = parts[1];
       const [personId, dateStr] = oid.replace("cell-", "").split("|");
@@ -514,9 +510,8 @@ export default function PlanificacionPage() {
 
   const getResourceList = (tipo: RecursoTipo) => {
     if (tipo === "humano") return rrhh.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
-    if (tipo === "maquinaria") return maqList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
     if (tipo === "vehiculo") return vehList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
-    return matList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
+    return [];
   };
 
   // Panel items for Vista Obras (filter asignable + search)
@@ -524,22 +519,18 @@ export default function PlanificacionPage() {
     const all: { dragId: string; nombre: string; foto_url?: string | null; detail?: string; count: number; iconType: string }[] = [];
     const search = resourceSearch.toLowerCase();
     if (resourceFilter === "all" || resourceFilter === "humano") rrhh.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
-    if (resourceFilter === "all" || resourceFilter === "maquinaria") maqList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "maquinaria" && a.recurso_id === r.id).length, iconType: "maquinaria" }));
     if (resourceFilter === "all" || resourceFilter === "vehiculo") vehList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === r.id).length, iconType: "vehiculo" }));
-    if (resourceFilter === "all" || resourceFilter === "material") matList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "material" && a.recurso_id === r.id).length, iconType: "material" }));
     return all.filter((r) => !search || r.nombre.toLowerCase().includes(search) || (r.detail || "").toLowerCase().includes(search)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [resourceFilter, rrhh, maqList, vehList, matList, asignaciones, resourceSearch]);
+  }, [resourceFilter, rrhh, vehList, asignaciones, resourceSearch]);
 
   // Panel items for Vista RRHH (filter asignable + search)
   const rrhhPanelItems = useMemo(() => {
     const all: { dragId: string; nombre: string; foto_url?: string | null; color?: string; detail?: string; count: number; iconType: string }[] = [];
     const search = resourceSearch.toLowerCase();
     if (panelFilter === "all" || panelFilter === "obra") sortedObras.forEach((o) => all.push({ dragId: `panel-obra|${o.id}`, nombre: o.nombre, color: o.color || "#DC2626", detail: (o as any).cliente?.nombre, count: asignaciones.filter((a) => a.obra_id === o.id && a.recurso_tipo === "humano").length, iconType: "obra" }));
-    if (panelFilter === "all" || panelFilter === "maquinaria") maqList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `panel-maquinaria|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.tipo || undefined, count: 0, iconType: "maquinaria" }));
     if (panelFilter === "all" || panelFilter === "vehiculo") vehList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `panel-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: 0, iconType: "vehiculo" }));
-    if (panelFilter === "all" || panelFilter === "material") matList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `panel-material|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.unidad || undefined, count: 0, iconType: "material" }));
     return all.filter((r) => !search || r.nombre.toLowerCase().includes(search) || (r.detail || "").toLowerCase().includes(search)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [panelFilter, sortedObras, maqList, vehList, matList, asignaciones, resourceSearch]);
+  }, [panelFilter, sortedObras, vehList, asignaciones, resourceSearch]);
 
   const dayLabel = (d: Date, i: number) => {
     if (viewMode === "week") return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
@@ -643,7 +634,7 @@ export default function PlanificacionPage() {
         </div>
         <Modal open={!!manualModal} onClose={() => setManualModal(null)} title={`Asignar: ${manualModal?.obraName || ""}`}>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo</label><select value={manualForm.recurso_tipo} onChange={(e) => setManualForm({ ...manualForm, recurso_tipo: e.target.value as RecursoTipo, recurso_id: "" })} className={ic}><option value="humano">Persona</option><option value="maquinaria">Maquinaria</option><option value="vehiculo">Vehículo</option><option value="material">Material</option></select></div><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Recurso</label><select value={manualForm.recurso_id} onChange={(e) => setManualForm({ ...manualForm, recurso_id: e.target.value })} className={ic}><option value="">Seleccionar...</option>{getResourceList(manualForm.recurso_tipo).map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}</select></div></div>
+            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Tipo</label><select value={manualForm.recurso_tipo} onChange={(e) => setManualForm({ ...manualForm, recurso_tipo: e.target.value as RecursoTipo, recurso_id: "" })} className={ic}><option value="humano">Persona</option><option value="vehiculo">Vehículo</option></select></div><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Recurso</label><select value={manualForm.recurso_id} onChange={(e) => setManualForm({ ...manualForm, recurso_id: e.target.value })} className={ic}><option value="">Seleccionar...</option>{getResourceList(manualForm.recurso_tipo).map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}</select></div></div>
             <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Desde</label><input type="date" value={manualForm.fecha_inicio || mobileDateStr} onChange={(e) => setManualForm({ ...manualForm, fecha_inicio: e.target.value })} className={ic} /></div><div><label className="block text-sm font-medium text-surface-700 mb-1.5">Hasta</label><input type="date" value={manualForm.fecha_fin || mobileDateStr} onChange={(e) => setManualForm({ ...manualForm, fecha_fin: e.target.value })} className={ic} /></div></div>
             <button onClick={handleManualAssign} disabled={manualSaving || !manualForm.recurso_id || !manualForm.fecha_inicio || !manualForm.fecha_fin} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{manualSaving && <Loader2 className="w-4 h-4 animate-spin" />}Asignar</button>
           </div>

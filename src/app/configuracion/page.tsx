@@ -8,20 +8,24 @@ import { useAuthStore } from "@/hooks/useAuth";
 import { Settings, Loader2, Save, ShieldCheck, Check, X, Plus, Pencil, Trash2, Mail } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
-type ConfigTab = "roles" | "partes" | "general";
+type ConfigTab = "roles" | "partes" | "almacen" | "general";
 
 const PANTALLAS = [
   { id: "dashboard", label: "Dashboard" },
   { id: "planificacion", label: "Planificación" },
   { id: "obras", label: "Obras" },
   { id: "partes", label: "Partes" },
+  { id: "almacen_articulos", label: "Almacén - Artículos" },
+  { id: "almacen_almacenes", label: "Almacén - Almacenes" },
+  { id: "almacen_proveedores", label: "Almacén - Proveedores" },
+  { id: "almacen_movimientos", label: "Almacén - Movimientos" },
   { id: "maestros_rrhh", label: "RRHH" },
-  { id: "maestros_maquinaria", label: "Maquinaria" },
   { id: "maestros_vehiculos", label: "Vehículos" },
-  { id: "maestros_materiales", label: "Materiales" },
   { id: "maestros_clientes", label: "Clientes" },
   { id: "maestros_estados", label: "Estados obra" },
   { id: "maestros_tipos_trabajo", label: "Tipos trabajo" },
+  { id: "maestros_tipos_obra", label: "Tipos de obra" },
+  { id: "apps_georadar", label: "Georadar" },
   { id: "logs", label: "Logs" },
   { id: "configuracion", label: "Configuración" },
 ];
@@ -56,6 +60,11 @@ export default function ConfiguracionPage() {
   const [newCcEmail, setNewCcEmail] = useState("");
   const [partesSaving, setPartesSaving] = useState(false);
   const [partesSaved, setPartesSaved] = useState(false);
+  const [almacenConfig, setAlmacenConfig] = useState({ emails: [] as string[], activo: true, asunto: "Alertas de almacen - ObrasPlan", dias_aviso_caducidad: 30 });
+  const [newAlmacenEmail, setNewAlmacenEmail] = useState("");
+  const [almacenSaving, setAlmacenSaving] = useState(false);
+  const [almacenSaved, setAlmacenSaved] = useState(false);
+  const [almacenTestSending, setAlmacenTestSending] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -85,6 +94,8 @@ export default function ConfiguracionPage() {
     if (result.length > 0 && !selectedRol) setSelectedRol(result[0].id);
     // Fetch partes config
     const { data: settingsData } = await supabase.from("app_settings").select("*").eq("key", "partes_email").single();
+    const { data: almacenSettingsData } = await (supabase.from("app_settings") as any).select("*").eq("key", "almacen_alertas").single();
+    if (almacenSettingsData?.value) setAlmacenConfig((prev) => ({ ...prev, ...almacenSettingsData.value }));
     if (settingsData?.value) setPartesConfig({ ...partesConfig, ...settingsData.value });
     setLoading(false);
   }, []);
@@ -163,7 +174,7 @@ export default function ConfiguracionPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-surface-200">
-          {[{ id: "roles" as ConfigTab, label: "Roles y permisos" }, { id: "partes" as ConfigTab, label: "Partes / Email" }, { id: "general" as ConfigTab, label: "General" }].map((t) => (
+          {[{ id: "roles" as ConfigTab, label: "Roles y permisos" }, { id: "partes" as ConfigTab, label: "Partes / Email" }, { id: "almacen" as ConfigTab, label: "Almacén" }, { id: "general" as ConfigTab, label: "General" }].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={cn("px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-all",
                 tab === t.id ? "border-brand-500 text-brand-600" : "border-transparent text-surface-500")}>
@@ -304,6 +315,71 @@ export default function ConfiguracionPage() {
                       partesSaved ? "text-emerald-700 bg-emerald-100" : "text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-60")}>
                     {partesSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : partesSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
                     {partesSaved ? "Guardado" : "Guardar configuración"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ALMACEN TAB */}
+            {tab === "almacen" && (
+              <div className="space-y-6">
+                <div className="card p-6 space-y-4">
+                  <h2 className="text-sm font-semibold text-surface-900">Emails para alertas de almacen</h2>
+                  <p className="text-xs text-surface-400">Estas direcciones recibiran alertas de stock bajo y caducidades proximas.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {almacenConfig.emails.map((email, i) => (
+                      <span key={i} className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
+                        {email}
+                        <button onClick={() => setAlmacenConfig({ ...almacenConfig, emails: almacenConfig.emails.filter((_, j) => j !== i) })} className="ml-1 hover:text-red-500"><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="email" value={newAlmacenEmail} onChange={(e) => setNewAlmacenEmail(e.target.value)}
+                      placeholder="email@ejemplo.com"
+                      onKeyDown={(e) => { if (e.key === "Enter" && newAlmacenEmail.includes("@")) { e.preventDefault(); setAlmacenConfig({ ...almacenConfig, emails: [...almacenConfig.emails, newAlmacenEmail] }); setNewAlmacenEmail(""); } }}
+                      className="flex-1 px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
+                    <button onClick={() => { if (newAlmacenEmail.includes("@")) { setAlmacenConfig({ ...almacenConfig, emails: [...almacenConfig.emails, newAlmacenEmail] }); setNewAlmacenEmail(""); } }}
+                      className="flex items-center gap-1 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600"><Plus className="w-4 h-4" />Añadir</button>
+                  </div>
+                </div>
+                <div className="card p-6 space-y-4">
+                  <h2 className="text-sm font-semibold text-surface-900">Configuracion del email</h2>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Asunto del email</label>
+                      <input type="text" value={almacenConfig.asunto} onChange={(e) => setAlmacenConfig({ ...almacenConfig, asunto: e.target.value })} className={ic} />
+                    </div>
+                    <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Dias de aviso antes de caducidad</label>
+                      <input type="number" min="1" max="365" value={almacenConfig.dias_aviso_caducidad} onChange={(e) => setAlmacenConfig({ ...almacenConfig, dias_aviso_caducidad: parseInt(e.target.value) || 30 })} className={ic} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="alm_activo" checked={almacenConfig.activo} onChange={(e) => setAlmacenConfig({ ...almacenConfig, activo: e.target.checked })} className="w-4 h-4" />
+                    <label htmlFor="alm_activo" className="text-sm text-surface-700">Alertas automaticas activas (email diario)</label>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <button onClick={async () => {
+                    if (!almacenConfig.emails.length) { alert("Añade al menos un email de destino"); return; }
+                    setAlmacenTestSending(true);
+                    const res = await fetch("/api/almacen/alertas-email", { method: "POST" });
+                    const d = await res.json();
+                    setAlmacenTestSending(false);
+                    alert(d.sent ? `Email enviado. ${d.alertas} alertas a ${d.destinatarios} destinatarios.` : "Sin alertas activas o error: " + (d.reason || d.error));
+                  }} disabled={almacenTestSending}
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200 disabled:opacity-60">
+                    {almacenTestSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    Enviar email de prueba ahora
+                  </button>
+                  <button onClick={async () => {
+                    setAlmacenSaving(true);
+                    await (supabase.from("app_settings") as any).upsert({ key: "almacen_alertas", value: almacenConfig, updated_at: new Date().toISOString() }, { onConflict: "key" });
+                    setAlmacenSaving(false); setAlmacenSaved(true); setTimeout(() => setAlmacenSaved(false), 2000);
+                  }} disabled={almacenSaving}
+                    className={cn("flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg",
+                      almacenSaved ? "text-emerald-700 bg-emerald-100" : "text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-60")}>
+                    {almacenSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : almacenSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                    {almacenSaved ? "Guardado" : "Guardar configuracion"}
                   </button>
                 </div>
               </div>

@@ -13,12 +13,12 @@ import {
   Loader2, Plus, Trash2, CheckCircle2, Clock, ListTodo, Upload,
   File, Image as ImageIcon, Save, MessageSquare, ExternalLink, Pencil,
   FileSignature, Archive, Eye, AlertTriangle, Download
-} from "lucide-react";
+, Package2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 import ChecklistPanel from "@/components/obras/ChecklistPanel";
 
-type Tab = "general" | "recursos" | "tareas" | "partes" | "documentos" | "checklists";
+type Tab = "general" | "recursos" | "tareas" | "partes" | "documentos" | "checklists" | "almacen";
 
 export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
@@ -37,6 +37,7 @@ export default function ObraDetallePage() {
   const [veh, setVeh] = useState<Record<string, any>>({});
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [partes, setPartes] = useState<any[]>([]);
+  const [stockObra, setStockObra] = useState<any[]>([]);
   const [tiposObra, setTiposObra] = useState<any[]>([]);
   const [obraTipos, setObraTipos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +78,14 @@ export default function ObraDetallePage() {
     setTiposTarea(tiposRes.data || []); setEstados(estadosRes.data || []);
     setRrhh(rrhhRes.data || []); setDocumentos((docsRes.data as Documento[]) || []);
     setPartes(partesRes.data || []); setTiposObra(tiposObraRes.data || []);
+    // Stock del almacen de la obra
+    try {
+      const { data: almacenObraR } = await (supabase.from("almacenes") as any).select("id").eq("obra_id", id).eq("activo", true).maybeSingle();
+      if (almacenObraR?.id) {
+        const { data: stockR } = await (supabase.from("v_stock_actual") as any).select("*").eq("almacen_id", almacenObraR.id);
+        setStockObra(stockR || []);
+      }
+    } catch { /* tabla almacen puede no existir aun */ }
     setObraTipos((obraTiposRes.data || []).map((t: any) => t.tipo_obra_id));
     const maqMap: Record<string, any> = {}; (maqRes.data || []).forEach((r: any) => maqMap[r.id] = r); setMaq(maqMap);
     const vehMap: Record<string, any> = {}; (vehRes.data || []).forEach((r: any) => vehMap[r.id] = r); setVeh(vehMap);
@@ -119,6 +128,7 @@ export default function ObraDetallePage() {
     { id: "partes", label: "Partes", icon: ClipboardList, count: partes.length },
     { id: "documentos", label: "Documentos", icon: FileText, count: documentos.length },
     { id: "checklists", label: "Checklists", icon: CheckCircle2 },
+    { id: "almacen", label: "Almacén", icon: Package2, count: stockObra.length },
   ];
   const humanos = asignaciones.filter((a) => a.recurso_tipo === "humano");
   const maquinas = asignaciones.filter((a) => a.recurso_tipo === "maquinaria");
@@ -391,6 +401,47 @@ export default function ObraDetallePage() {
 
         {tab === "checklists" && (
           <ChecklistPanel obraId={id} rrhh={rrhh.map((r) => ({ id: r.id, nombre: r.nombre }))} />
+        )}
+
+        {tab === "almacen" && (
+          <div className="space-y-4">
+            {stockObra.length === 0 ? (
+              <div className="card p-8 text-center text-sm text-surface-400">
+                <p>Esta obra no tiene un almacen asociado o no tiene stock registrado.</p>
+                <p className="text-xs mt-2">Ve a Almacen → Almacenes y crea un almacen con esta obra para empezar a registrar stock.</p>
+              </div>
+            ) : (
+              <div className="card overflow-hidden">
+                <div className="px-4 py-3 border-b border-surface-100 bg-surface-50">
+                  <h3 className="text-sm font-semibold text-surface-700">Stock del almacen de la obra</h3>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-surface-100">
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Articulo</th>
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Cod. articulo</th>
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Tipo</th>
+                      <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stock</th>
+                      <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Min.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockObra.map((s: any, i: number) => (
+                      <tr key={i} className={cn("border-b border-surface-50", s.bajo_minimo ? "bg-red-50/50" : "hover:bg-surface-50/50")}>
+                        <td className="px-4 py-2.5 font-medium text-surface-900">{s.nombre}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-surface-500">{s.codigo_articulo}</td>
+                        <td className="px-4 py-2.5 text-xs text-surface-500">{s.tipo}</td>
+                        <td className={cn("px-4 py-2.5 text-right font-mono text-sm font-semibold", s.bajo_minimo ? "text-red-600" : "text-surface-900")}>
+                          {Number(s.stock_qty).toFixed(2)} {s.unidad}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-mono text-xs text-surface-400">{Number(s.stock_minimo_def).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
