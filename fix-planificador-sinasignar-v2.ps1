@@ -1,3 +1,21 @@
+﻿#Requires -Version 5.1
+# fix-planificador-sinasignar-v2.ps1
+# Corrige la fila SIN ASIGNAR y el panel de recursos del planificador:
+#   1. RRHH sin asignar ahora se ven claramente en la fila SIN ASIGNAR
+#      (render propio con avatares/initials con ring ambar)
+#   2. Vehiculos sin asignar siguen apareciendo igual
+#   3. Botones de filtro del panel derecho: solo Personas y Vehiculos
+#      (se eliminan Maquinaria/Herramientas/Material)
+#   4. Modal de asignacion manual: solo Persona y Vehiculo
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR: repo no encontrado" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo archivos" -ForegroundColor Cyan
+
+$dst = "src\app\planificacion\page.tsx"
+$content = @'
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, memo } from "react";
@@ -908,3 +926,29 @@ export default function PlanificacionPage() {
     </AppLayout>
   );
 }
+'@
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: src\app\planificacion\page.tsx" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "==> Verificando" -ForegroundColor Cyan
+$ok1 = Select-String -Path "src\app\planificacion\page.tsx" -Pattern "humano.*sin asignar|sin_asignar.*humano|ring-amber" -Quiet
+$ok2 = Select-String -Path "src\app\planificacion\page.tsx" -Pattern "maquinaria.*ResourceFilter|maquinaria.*PanelFilter" -Quiet
+if ($ok1) { Write-Host "    OK: SinAsignarRow con render propio de RRHH" -ForegroundColor Green }
+else { Write-Host "    AVISO: revisar SinAsignarRow (marcador no encontrado)" -ForegroundColor Yellow }
+if (-not $ok2) { Write-Host "    OK: maquinaria eliminada de filtros del panel" -ForegroundColor Green }
+else { Write-Host "    ERROR: maquinaria sigue en filtros" -ForegroundColor Red }
+Write-Host ""
+Write-Host "No se necesita migracion SQL para este fix." -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Pruebas manuales recomendadas:" -ForegroundColor Cyan
+Write-Host "  1. RRHH sin asignar aparece en SIN ASIGNAR con avatar/inicial"
+Write-Host "  2. Vehiculos sin asignar siguen apareciendo"
+Write-Host "  3. Al asignar un RRHH a una obra, desaparece de SIN ASIGNAR ese dia"
+Write-Host "  4. Panel derecho: solo aparecen Personas y Vehiculos"
+Write-Host "  5. Modal de asignar manual: solo Persona y Vehiculo en el select"
+Write-Host ""
+Write-Host '  git add src\app\planificacion\page.tsx'
+Write-Host '  git commit -m "fix: RRHH visibles en SIN ASIGNAR, eliminar maquinaria/material de filtros"'
+Write-Host '  git push'
