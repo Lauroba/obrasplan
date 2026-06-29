@@ -1,3 +1,16 @@
+﻿#Requires -Version 5.1
+# deploy-editar-almacen.ps1
+# Anade boton "Editar" y modal de edicion en la pantalla de detalle de almacen.
+# Campos editables: Nombre, Codigo almacen (bloqueado si es almacen de obra), Ubicacion.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo archivos" -ForegroundColor Cyan
+
+$dst = "src\app\almacen\almacenes\[id]\page.tsx"
+$content = @'
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -98,9 +111,7 @@ export default function AlmacenDetallePage() {
     setLoading(true);
     const [aRes, sRes] = await Promise.all([
       (supabase.from("almacenes") as any).select("*, obra:obras(nombre,num_presupuesto)").eq("id", id).single(),
-      (supabase.from("v_stock_actual_ext") as any)
-        .select("*, articulo_foto:articulos!articulo_id(foto_url)")
-        .eq("almacen_id", id),
+      (supabase.from("v_stock_actual_ext") as any).select("*").eq("almacen_id", id),
     ]);
     setAlmacen(aRes.data);
     setStock(sRes.data || []);
@@ -298,7 +309,7 @@ export default function AlmacenDetallePage() {
                           bajoMin && !negativo && "bg-amber-50/30")}>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-2">
-                            <FotoArticulo url={(s as any).articulo_foto?.foto_url ?? (s as any).foto_url} nombre={s.nombre} size="sm" />
+                            <FotoArticulo url={(s as any).foto_url} nombre={s.nombre} size="sm" />
                             <div>
                               <div className="font-medium text-surface-900 text-xs">{s.nombre}</div>
                               <div className="text-[10px] text-surface-400 font-mono">{s.codigo_articulo}</div>
@@ -528,3 +539,19 @@ export default function AlmacenDetallePage() {
     </AppLayout>
   );
 }
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "==> Verificando" -ForegroundColor Cyan
+$ok = Select-String -LiteralPath (Join-Path $RepoPath "src\app\almacen\almacenes\[id]\page.tsx") -Pattern "editOpen" -Quiet
+if ($ok) { Write-Host "    OK: modal edicion presente" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+Write-Host ""
+Write-Host '  git add src\app\almacen\almacenes\[id]\page.tsx'
+Write-Host '  git commit -m "feat: editar almacen desde pantalla de detalle"'
+Write-Host '  git push'

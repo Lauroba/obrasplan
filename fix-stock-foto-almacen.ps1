@@ -1,3 +1,16 @@
+﻿#Requires -Version 5.1
+# fix-stock-foto-almacen.ps1
+# Muestra la miniatura del articulo en la pantalla de detalle de almacen.
+# IMPORTANTE: ejecutar primero 037_vistas_foto_url.sql en Supabase
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo archivos" -ForegroundColor Cyan
+
+$dst = "src\app\almacen\almacenes\[id]\page.tsx"
+$content = @'
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -528,3 +541,19 @@ export default function AlmacenDetallePage() {
     </AppLayout>
   );
 }
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: src\app\almacen\almacenes\[id]\page.tsx" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "    OK: articulo_foto join anadido" -ForegroundColor Green
+Write-Host ""
+Write-Host "RECORDATORIO: ejecutar 037_vistas_foto_url.sql en Supabase" -ForegroundColor Yellow
+Write-Host "(esto hace que foto_url este disponible nativamente en v_stock_actual)"
+Write-Host ""
+Write-Host '  git add -A'
+Write-Host '  git commit -m "fix: foto articulo visible en detalle de almacen"'
+Write-Host '  git push'
