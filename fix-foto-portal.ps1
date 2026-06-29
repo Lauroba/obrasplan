@@ -1,3 +1,16 @@
+﻿#Requires -Version 5.1
+# fix-foto-articulo-portal.ps1
+# Corrige el preview de fotos de articulos usando position:fixed + createPortal.
+# El popup ya no queda cortado por overflow:hidden de tablas ni cards.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo FotoArticulo.tsx" -ForegroundColor Cyan
+
+$dst = "src\components\shared\FotoArticulo.tsx"
+$content = @'
 "use client";
 /**
  * FotoArticulo — Miniatura con preview flotante via position:fixed.
@@ -125,3 +138,15 @@ export function FotoArticulo({ url, nombre = "", size = "md" }: Props) {
     </>
   );
 }
+'@
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$ok = Select-String -Path "src\components\shared\FotoArticulo.tsx" -Pattern "createPortal" -Quiet
+if ($ok) { Write-Host "    OK: portal implementado" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+Write-Host ""
+Write-Host '  git add src\components\shared\FotoArticulo.tsx'
+Write-Host '  git commit -m "fix: foto articulo preview via portal position:fixed"'
+Write-Host '  git push'
