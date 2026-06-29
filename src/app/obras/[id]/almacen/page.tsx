@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import { createClient } from "@/lib/supabase/client";
+import { FotoArticulo } from "@/components/shared/FotoArticulo";
 import {
   ArrowLeft, Loader2, Package, AlertTriangle, TrendingDown,
   Calendar, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
@@ -63,7 +64,7 @@ export default function ObraAlmacenPage() {
       if (!almacenData?.id) { setLoading(false); return; }
 
       // Stock actual del almacén
-      const { data: stockData } = await (supabase.from("v_stock_actual") as any)
+      const { data: stockData } = await (supabase.from("v_stock_actual_ext") as any)
         .select("*")
         .eq("almacen_id", almacenData.id);
       setStock(stockData || []);

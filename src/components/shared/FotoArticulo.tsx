@@ -1,59 +1,64 @@
 /**
- * FotoArticulo — Miniatura de artículo con popup al hacer hover.
- * Se usa en listados de artículos, movimientos e histórico.
- *
- * Props:
- *   url       URL pública de la foto (null = icono Package)
- *   nombre    Nombre del artículo (alt + tooltip)
- *   size      Tamaño de la miniatura: "sm" (7×7) | "md" (8×8, default)
- *
- * El popup aparece sobre la miniatura en desktop (pointer:fine).
- * En móvil/táctil el popup no interfiere porque depende de :hover.
+ * FotoArticulo — Miniatura con popup hover que muestra la imagen en tamaño medio.
+ * Usado en listados de artículos, movimientos e históricos.
  */
 "use client";
 import { Package } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
-interface FotoArticuloProps {
+interface Props {
   url?: string | null;
   nombre?: string;
   size?: "sm" | "md";
 }
 
-export function FotoArticulo({ url, nombre = "", size = "md" }: FotoArticuloProps) {
+export function FotoArticulo({ url, nombre = "", size = "md" }: Props) {
   const dim = size === "sm" ? "w-7 h-7" : "w-8 h-8";
 
   return (
-    <div className="relative group inline-flex">
+    <div className={cn("relative inline-flex shrink-0 group/foto", dim)}>
       {/* Miniatura */}
       {url ? (
         <img
           src={url}
           alt={nombre}
           title={nombre}
-          className={cn(dim, "rounded object-cover shrink-0 border border-surface-200 cursor-zoom-in")}
+          className={cn(dim, "rounded object-cover border border-surface-200 cursor-zoom-in")}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
         />
       ) : (
-        <div className={cn(dim, "rounded bg-surface-100 flex items-center justify-center shrink-0 border border-surface-100")}>
-          <Package className={size === "sm" ? "w-3.5 h-3.5" : "w-4 h-4"} style={{ color: "#9CA3AF" }} />
+        <div className={cn(dim, "rounded bg-surface-100 flex items-center justify-center border border-surface-100")}>
+          <Package className="w-3.5 h-3.5 text-surface-300" />
         </div>
       )}
 
-      {/* Popup hover — solo si hay foto */}
+      {/* Popup hover: solo si hay foto */}
       {url && (
-        <div className={cn(
-          // Posición: encima de la miniatura, centrado horizontalmente
-          "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50",
-          // Tamaño y forma
-          "w-40 h-40 rounded-xl overflow-hidden shadow-xl border-2 border-white ring-1 ring-surface-200",
-          // Animación y visibilidad — solo visible en dispositivos con puntero fino (desktop)
-          "opacity-0 scale-90 pointer-events-none",
-          "@media(hover:hover){group-hover:opacity-100 group-hover:scale-100}",
-          "transition-all duration-150 ease-out",
-          // Clase Tailwind estándar para hover en grupo
-          "group-hover:opacity-100 group-hover:scale-100",
-        )}>
-          <img src={url} alt={nombre} className="w-full h-full object-contain bg-white" />
+        <div
+          className={cn(
+            // Posición: encima y centrado
+            "absolute z-[9999] bottom-full left-1/2 -translate-x-1/2 mb-2",
+            // Tamaño fijo del popup
+            "w-44 h-44 rounded-xl overflow-hidden",
+            // Estilo visual
+            "bg-white shadow-2xl border border-surface-200 ring-1 ring-black/5",
+            // Visibilidad controlada con invisible/visible para no ocupar espacio en DOM
+            "invisible opacity-0 scale-90 pointer-events-none",
+            "group-hover/foto:visible group-hover/foto:opacity-100 group-hover/foto:scale-100",
+            "transition-all duration-150 ease-out",
+          )}
+          style={{ transformOrigin: "bottom center" }}
+        >
+          <img
+            src={url}
+            alt={nombre}
+            className="w-full h-full object-contain bg-white p-1"
+          />
+          {nombre && (
+            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] px-2 py-1 truncate">
+              {nombre}
+            </div>
+          )}
         </div>
       )}
     </div>

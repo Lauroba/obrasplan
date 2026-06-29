@@ -7,6 +7,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
+import { FotoArticulo } from "@/components/shared/FotoArticulo";
 import {
   Warehouse, Loader2, ArrowLeft, AlertTriangle, SlidersHorizontal,
   History, TrendingDown, Calendar, Search, ArrowDownToLine,
@@ -63,7 +64,7 @@ export default function AlmacenDetallePage() {
     setLoading(true);
     const [aRes, sRes] = await Promise.all([
       (supabase.from("almacenes") as any).select("*, obra:obras(nombre,num_presupuesto)").eq("id", id).single(),
-      (supabase.from("v_stock_actual") as any).select("*").eq("almacen_id", id),
+      (supabase.from("v_stock_actual_ext") as any).select("*").eq("almacen_id", id),
     ]);
     setAlmacen(aRes.data);
     setStock(sRes.data || []);
@@ -238,6 +239,7 @@ export default function AlmacenDetallePage() {
                     <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stock</th>
                     <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden sm:table-cell">Mín.</th>
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Caducidad</th>
+                    <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden xl:table-cell">Días</th>
                     <th className="w-20 text-center text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Acciones</th>
                   </tr>
                 </thead>
@@ -253,8 +255,13 @@ export default function AlmacenDetallePage() {
                           negativo && "bg-red-50/30",
                           bajoMin && !negativo && "bg-amber-50/30")}>
                         <td className="px-4 py-2.5">
-                          <div className="font-medium text-surface-900 text-xs">{s.nombre}</div>
-                          <div className="text-[10px] text-surface-400 font-mono">{s.codigo_articulo}</div>
+                          <div className="flex items-center gap-2">
+                            <FotoArticulo url={(s as any).foto_url} nombre={s.nombre} size="sm" />
+                            <div>
+                              <div className="font-medium text-surface-900 text-xs">{s.nombre}</div>
+                              <div className="text-[10px] text-surface-400 font-mono">{s.codigo_articulo}</div>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-2.5 text-xs text-surface-500 hidden md:table-cell">{s.referencia_proveedor}</td>
                         <td className="px-4 py-2.5">
@@ -281,6 +288,11 @@ export default function AlmacenDetallePage() {
                               <Calendar className="w-3 h-3" />
                               {new Date(s.caducidad).toLocaleDateString("es-ES")}
                             </span>
+                          ) : <span className="text-surface-300 text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right hidden xl:table-cell">
+                          {(s as any).dias_en_almacen != null ? (
+                            <span className="font-mono text-xs text-surface-600">{(s as any).dias_en_almacen}d</span>
                           ) : <span className="text-surface-300 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-2.5">
