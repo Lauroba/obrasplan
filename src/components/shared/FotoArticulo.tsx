@@ -1,6 +1,7 @@
 /**
- * FotoArticulo — Miniatura con popup hover que muestra la imagen en tamaño medio.
- * Usado en listados de artículos, movimientos e históricos.
+ * FotoArticulo — Miniatura con popup hover.
+ * size="sm"  -> miniatura 40x40px  (movimientos, tablas densas)
+ * size="md"  -> miniatura 48x48px  (listado de artículos, default)
  */
 "use client";
 import { Package } from "lucide-react";
@@ -13,36 +14,57 @@ interface Props {
 }
 
 export function FotoArticulo({ url, nombre = "", size = "md" }: Props) {
-  const dim = size === "sm" ? "w-7 h-7" : "w-8 h-8";
+  // Miniaturas visiblemente más grandes que antes
+  const wh   = size === "sm" ? "w-10 h-10" : "w-12 h-12";
+  const icon = size === "sm" ? "w-5 h-5"   : "w-6 h-6";
 
   return (
-    <div className={cn("relative inline-flex shrink-0 group/foto", dim)}>
-      {/* Miniatura */}
+    // El contenedor tiene el tamaño real de la miniatura
+    // overflow-visible es clave para que el popup salga fuera del td
+    <div className={cn("relative inline-flex shrink-0 group/foto overflow-visible", wh)}>
+
+      {/* ── Miniatura ── */}
       {url ? (
         <img
           src={url}
           alt={nombre}
           title={nombre}
-          className={cn(dim, "rounded object-cover border border-surface-200 cursor-zoom-in")}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          className={cn(
+            wh,
+            "rounded-lg object-cover border border-surface-200",
+            "cursor-zoom-in select-none",
+          )}
+          onError={(e) => {
+            const img = e.target as HTMLImageElement;
+            img.style.display = "none";
+            const parent = img.parentElement;
+            if (parent) {
+              const ph = document.createElement("div");
+              ph.className = img.className.replace("cursor-zoom-in", "").trim()
+                + " bg-surface-100 flex items-center justify-center border-surface-100";
+              parent.appendChild(ph);
+            }
+          }}
         />
       ) : (
-        <div className={cn(dim, "rounded bg-surface-100 flex items-center justify-center border border-surface-100")}>
-          <Package className="w-3.5 h-3.5 text-surface-300" />
+        <div className={cn(wh, "rounded-lg bg-surface-100 flex items-center justify-center border border-surface-100")}>
+          <Package className={cn(icon, "text-surface-300")} />
         </div>
       )}
 
-      {/* Popup hover: solo si hay foto */}
+      {/* ── Popup hover (solo si hay foto) ── */}
       {url && (
         <div
           className={cn(
-            // Posición: encima y centrado
-            "absolute z-[9999] bottom-full left-1/2 -translate-x-1/2 mb-2",
-            // Tamaño fijo del popup
-            "w-44 h-44 rounded-xl overflow-hidden",
-            // Estilo visual
-            "bg-white shadow-2xl border border-surface-200 ring-1 ring-black/5",
-            // Visibilidad controlada con invisible/visible para no ocupar espacio en DOM
+            // Posición: sobre la miniatura, centrado horizontalmente
+            "absolute z-[9999]",
+            "bottom-full left-1/2 -translate-x-1/2 mb-2",
+            // Tamaño del popup: bien visible
+            "w-56 h-56",
+            // Estilo
+            "rounded-2xl overflow-hidden bg-white",
+            "shadow-2xl border border-surface-200",
+            // Animación con invisible/visible (no desplaza el layout)
             "invisible opacity-0 scale-90 pointer-events-none",
             "group-hover/foto:visible group-hover/foto:opacity-100 group-hover/foto:scale-100",
             "transition-all duration-150 ease-out",
@@ -52,10 +74,10 @@ export function FotoArticulo({ url, nombre = "", size = "md" }: Props) {
           <img
             src={url}
             alt={nombre}
-            className="w-full h-full object-contain bg-white p-1"
+            className="w-full h-full object-contain p-2"
           />
           {nombre && (
-            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] px-2 py-1 truncate">
+            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[11px] font-medium px-3 py-1.5 truncate">
               {nombre}
             </div>
           )}
