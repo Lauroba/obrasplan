@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
+import { FotoArticulo } from "@/components/shared/FotoArticulo";
 
 // Solo 2 tipos en el formulario de nuevo movimiento:
 //   movimiento -> traslado_salida + traslado_entrada (via RPC)
@@ -45,7 +46,7 @@ export default function MovimientosPage() {
   const [tipoForm, setTipoForm] = useState<TipoForm>("movimiento");
   const [movForm, setMovForm] = useState({
     articulo_id: "", almacen_origen_id: "", almacen_destino_id: "",
-    cantidad: "1", obra_id: "", observaciones: "",
+    cantidad: "1", observaciones: "",
   });
   const [ajForm, setAjForm] = useState({
     articulo_id: "", almacen_id: "", sentido: "+",
@@ -89,7 +90,7 @@ export default function MovimientosPage() {
 
   const openModal = (tipo: TipoForm) => {
     setTipoForm(tipo);
-    setMovForm({ articulo_id: "", almacen_origen_id: "", almacen_destino_id: "", cantidad: "1", obra_id: "", observaciones: "" });
+    setMovForm({ articulo_id: "", almacen_origen_id: "", almacen_destino_id: "", cantidad: "1", observaciones: "" });
     setAjForm({ articulo_id: "", almacen_id: "", sentido: "+", cantidad: "1", motivo: "", observaciones: "" });
     setError(null);
     setModalOpen(true);
@@ -110,7 +111,7 @@ export default function MovimientosPage() {
           p_almacen_origen_id:  movForm.almacen_origen_id,
           p_almacen_destino_id: movForm.almacen_destino_id,
           p_cantidad:           parseFloat(movForm.cantidad) || 1,
-          p_obra_id:            movForm.obra_id || null,
+          p_obra_id:            null,
           p_observaciones:      movForm.observaciones || null,
         });
         if (err) throw err;
@@ -265,14 +266,7 @@ export default function MovimientosPage() {
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-2">
-                            {m.articulo?.foto_url ? (
-                              <img src={m.articulo.foto_url} alt={m.articulo.nombre}
-                                className="w-7 h-7 rounded object-cover shrink-0 border border-surface-200" />
-                            ) : (
-                              <div className="w-7 h-7 rounded bg-surface-100 flex items-center justify-center shrink-0">
-                                <Package className="w-3.5 h-3.5 text-surface-400" />
-                              </div>
-                            )}
+                            <FotoArticulo url={m.articulo?.foto_url} nombre={m.articulo?.nombre} size="sm" />
                             <div>
                               <div className="font-medium text-surface-900 text-xs">{m.articulo?.nombre || "—"}</div>
                               <div className="text-surface-400 text-[10px] font-mono">{m.articulo?.codigo_articulo}</div>
@@ -334,18 +328,10 @@ export default function MovimientosPage() {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs font-medium text-surface-600 mb-1">Cantidad *</label>
-              <input required type="number" min="0.001" step="0.001" className={ic}
-                value={movForm.cantidad} onChange={(e) => setMovForm({ ...movForm, cantidad: e.target.value })} />
-            </div>
-            <div><label className="block text-xs font-medium text-surface-600 mb-1">Obra (opcional)</label>
-              <select className={ic} value={movForm.obra_id}
-                onChange={(e) => setMovForm({ ...movForm, obra_id: e.target.value })}>
-                <option value="">Sin obra</option>
-                {obras.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-surface-600 mb-1">Cantidad *</label>
+            <input required type="number" min="0.001" step="0.001" className={ic}
+              value={movForm.cantidad} onChange={(e) => setMovForm({ ...movForm, cantidad: e.target.value })} />
           </div>
           <div><label className="block text-xs font-medium text-surface-600 mb-1">Observaciones</label>
             <input className={ic} value={movForm.observaciones}
@@ -480,14 +466,7 @@ export default function MovimientosPage() {
               <div className="max-h-48 overflow-y-auto">
                 {scanItems.map((item, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2 border-b border-surface-50 last:border-0">
-                    {item.articulo.foto_url ? (
-                      <img src={item.articulo.foto_url} alt={item.articulo.nombre}
-                        className="w-7 h-7 rounded object-cover shrink-0 border border-surface-200" />
-                    ) : (
-                      <div className="w-7 h-7 rounded bg-surface-100 flex items-center justify-center shrink-0">
-                        <Package className="w-3.5 h-3.5 text-surface-400" />
-                      </div>
-                    )}
+                    <FotoArticulo url={item.articulo.foto_url} nombre={item.articulo.nombre} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-surface-900 truncate">{item.articulo.nombre}</p>
                       <p className="text-[10px] text-surface-400 font-mono">{item.articulo.codigo_articulo}</p>

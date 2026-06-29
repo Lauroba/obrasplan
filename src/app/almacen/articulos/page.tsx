@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
+import { FotoArticulo } from "@/components/shared/FotoArticulo";
 
 const empty = {
   referencia_proveedor: "", codigo_articulo: "", codigo_barras: "",
@@ -292,13 +293,7 @@ export default function ArticulosPage() {
                       <td className="px-4 py-2.5 font-mono text-xs text-surface-600">{a.codigo_articulo}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          {a.foto_url ? (
-                            <img src={a.foto_url} alt={a.nombre} className="w-8 h-8 rounded object-cover shrink-0 border border-surface-200" />
-                          ) : (
-                            <div className="w-8 h-8 rounded bg-surface-100 flex items-center justify-center shrink-0">
-                              <Package className="w-4 h-4 text-surface-300" />
-                            </div>
-                          )}
+                          <FotoArticulo url={a.foto_url} nombre={a.nombre} size="md" />
                           <span className="font-medium text-surface-900">{a.nombre}</span>
                         </div>
                       </td>
@@ -345,16 +340,16 @@ export default function ArticulosPage() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? "Editar artículo" : "Nuevo artículo"} size="lg">
         <form onSubmit={handleSave} className="space-y-3">
           {/* Foto del artículo */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col items-center gap-3">
             {form.foto_url ? (
-              <img src={form.foto_url} alt="foto" className="w-16 h-16 rounded-lg object-cover border border-surface-200" />
+              <img src={form.foto_url} alt="foto"
+                className="w-32 h-32 rounded-xl object-contain bg-surface-50 border border-surface-200" />
             ) : (
-              <div className="w-16 h-16 rounded-lg bg-surface-100 flex items-center justify-center border border-surface-200">
-                <Package className="w-7 h-7 text-surface-300" />
+              <div className="w-32 h-32 rounded-xl bg-surface-100 flex items-center justify-center border border-surface-200">
+                <Package className="w-12 h-12 text-surface-300" />
               </div>
             )}
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-surface-600 mb-1">Foto del artículo</label>
+            <div className="flex flex-col items-center gap-1">
               <button type="button" disabled={uploadingFoto}
                 onClick={() => fotoRef.current?.click()}
                 className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200 disabled:opacity-60">
