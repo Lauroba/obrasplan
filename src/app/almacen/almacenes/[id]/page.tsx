@@ -11,7 +11,7 @@ import { FotoArticulo } from "@/components/shared/FotoArticulo";
 import {
   Warehouse, Loader2, ArrowLeft, AlertTriangle, SlidersHorizontal,
   History, TrendingDown, Calendar, Search, ArrowDownToLine,
-  ArrowUpFromLine, ArrowLeftRight, Package, Building2,
+  ArrowUpFromLine, ArrowLeftRight, Package, Building2, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
@@ -59,6 +59,40 @@ export default function AlmacenDetallePage() {
   const [ajusteForm, setAjusteForm] = useState({ sentido: "+", cantidad: "1", motivo: "", observaciones: "" });
   const [ajusteSaving, setAjusteSaving] = useState(false);
   const [ajusteError, setAjusteError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({ codigo_almacen: "", nombre: "", ubicacion: "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const openEdit = () => {
+    if (!almacen) return;
+    setEditForm({
+      codigo_almacen: almacen.codigo_almacen || "",
+      nombre: almacen.nombre || "",
+      ubicacion: almacen.ubicacion || "",
+    });
+    setEditError(null);
+    setEditOpen(true);
+  };
+
+  const handleEditSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditSaving(true); setEditError(null);
+    try {
+      const { error: err } = await (supabase.from("almacenes") as any)
+        .update({
+          nombre: editForm.nombre.trim(),
+          ubicacion: editForm.ubicacion.trim() || null,
+          codigo_almacen: editForm.codigo_almacen.trim().toUpperCase(),
+        })
+        .eq("id", id);
+      if (err) throw err;
+      setEditOpen(false);
+      fetchData();
+    } catch (err: any) {
+      setEditError(err.message || "Error al guardar");
+    } finally { setEditSaving(false); }
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -185,6 +219,12 @@ export default function AlmacenDetallePage() {
             </div>
             {almacen.ubicacion && <p className="text-sm text-surface-500 mt-0.5">{almacen.ubicacion}</p>}
           </div>
+          {isAdmin && (
+            <button onClick={openEdit}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200">
+              <Pencil className="w-4 h-4" />Editar
+            </button>
+          )}
         </div>
 
         {/* Alertas globales del almacén */}
@@ -438,6 +478,50 @@ export default function AlmacenDetallePage() {
             })}
           </div>
         )}
+      </Modal>
+      {/* Modal edición */}
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Editar almacén" size="sm">
+        <form onSubmit={handleEditSave} className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-surface-600 mb-1">Código almacén *</label>
+            <input required
+              className="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+              value={editForm.codigo_almacen}
+              onChange={(e) => setEditForm({ ...editForm, codigo_almacen: e.target.value.toUpperCase() })}
+              disabled={almacen?.es_almacen_obra}
+              title={almacen?.es_almacen_obra ? "El código de almacenes de obra no se puede cambiar" : ""}
+            />
+            {almacen?.es_almacen_obra && (
+              <p className="text-[10px] text-surface-400 mt-1">El código de almacenes de obra no es editable.</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-surface-600 mb-1">Nombre *</label>
+            <input required
+              className="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+              value={editForm.nombre}
+              onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-surface-600 mb-1">Ubicación</label>
+            <input
+              className="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+              value={editForm.ubicacion}
+              onChange={(e) => setEditForm({ ...editForm, ubicacion: e.target.value })}
+              placeholder="Dirección, nave, sección..."
+            />
+          </div>
+          {editError && <p className="text-xs text-red-600">{editError}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setEditOpen(false)}
+              className="px-4 py-2 text-sm text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">Cancelar</button>
+            <button type="submit" disabled={editSaving}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+              {editSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Guardar
+            </button>
+          </div>
+        </form>
       </Modal>
     </AppLayout>
   );
