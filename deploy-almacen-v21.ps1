@@ -1,3 +1,477 @@
+﻿#Requires -Version 5.1
+# deploy-almacen-v2.ps1
+# Almacen de obra completo:
+#   - Nueva pantalla /obras/[id]/almacen con stock + movimientos en tabs
+#   - Pestaña Almacen en ficha de obra mejorada (alertas, link a nueva pantalla)
+#   - obras/nueva: crea almacen automaticamente al crear obra
+#
+# IMPORTANTE: ejecutar primero 034_backfill_almacenes_obras.sql en Supabase
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR: repo no encontrado" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo archivos" -ForegroundColor Cyan
+
+$dst = "src\app\obras\[id]\almacen\page.tsx"
+$content = @'
+"use client";
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import AppLayout from "@/components/layout/AppLayout";
+import { createClient } from "@/lib/supabase/client";
+import {
+  ArrowLeft, Loader2, Package, AlertTriangle, TrendingDown,
+  Calendar, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight,
+  SlidersHorizontal, Search, Filter,
+} from "lucide-react";
+import { cn } from "@/lib/utils/cn";
+
+const TIPO_MOV: Record<string, { label: string; color: string; icon: any }> = {
+  entrada:          { label: "Entrada",          color: "bg-emerald-100 text-emerald-700", icon: ArrowDownToLine },
+  salida:           { label: "Salida",           color: "bg-red-100 text-red-700",         icon: ArrowUpFromLine },
+  ajuste:           { label: "Ajuste",           color: "bg-amber-100 text-amber-700",     icon: SlidersHorizontal },
+  traslado_salida:  { label: "Traslado salida",  color: "bg-blue-100 text-blue-700",       icon: ArrowLeftRight },
+  traslado_entrada: { label: "Traslado entrada", color: "bg-indigo-100 text-indigo-700",   icon: ArrowLeftRight },
+};
+
+const TIPO_ART: Record<string, string> = {
+  material:   "bg-blue-100 text-blue-700",
+  maquinaria: "bg-orange-100 text-orange-700",
+  vehiculo:   "bg-purple-100 text-purple-700",
+  otro:       "bg-surface-100 text-surface-600",
+};
+
+export default function ObraAlmacenPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [obra, setObra] = useState<any>(null);
+  const [almacen, setAlmacen] = useState<any>(null);
+  const [stock, setStock] = useState<any[]>([]);
+  const [movimientos, setMovimientos] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"stock" | "movimientos">("stock");
+  const [searchStock, setSearchStock] = useState("");
+  const [searchMov, setSearchMov] = useState("");
+  const [tipoMovFilter, setTipoMovFilter] = useState("");
+  const [creandoAlmacen, setCreandoAlmacen] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Datos de la obra
+      const { data: obraData } = await (supabase.from("obras") as any)
+        .select("id, nombre, num_presupuesto, cliente:clientes(nombre)")
+        .eq("id", id)
+        .single();
+      setObra(obraData);
+
+      // Almacén de la obra
+      const { data: almacenData } = await (supabase.from("almacenes") as any)
+        .select("id, codigo_almacen, nombre, ubicacion")
+        .eq("obra_id", id)
+        .eq("es_almacen_obra", true)
+        .eq("activo", true)
+        .maybeSingle();
+      setAlmacen(almacenData);
+
+      if (!almacenData?.id) { setLoading(false); return; }
+
+      // Stock actual del almacén
+      const { data: stockData } = await (supabase.from("v_stock_actual") as any)
+        .select("*")
+        .eq("almacen_id", almacenData.id);
+      setStock(stockData || []);
+
+      // Movimientos donde participa el almacén de la obra
+      const { data: movData } = await (supabase.from("movimientos_almacen") as any)
+        .select(`
+          id, tipo, cantidad, fecha, observaciones, motivo, lote_ref, created_at,
+          articulo:articulos(nombre, codigo_articulo, referencia_proveedor, unidad, tipo),
+          origen:almacenes!almacen_origen_id(nombre, codigo_almacen),
+          destino:almacenes!almacen_destino_id(nombre, codigo_almacen),
+          obra_rel:obras!obra_id(nombre),
+          user:users(nombre)
+        `)
+        .or(`almacen_origen_id.eq.${almacenData.id},almacen_destino_id.eq.${almacenData.id}`)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      setMovimientos(movData || []);
+    } catch (err) {
+      console.error(err);
+    } finally { setLoading(false); }
+  }, [id]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleCrearAlmacen = async () => {
+    setCreandoAlmacen(true);
+    try {
+      const { error } = await (supabase.rpc as any)("crear_almacen_obra", { p_obra_id: id });
+      if (error) throw error;
+      fetchData();
+    } catch (err: any) {
+      alert("Error: " + (err?.message || err));
+    } finally { setCreandoAlmacen(false); }
+  };
+
+  const hoy = new Date();
+  const isExpired = (cad: string | null) => cad && new Date(cad) < hoy;
+  const isExpiringSoon = (cad: string | null) => {
+    if (!cad) return false;
+    const diff = (new Date(cad).getTime() - hoy.getTime()) / 86400000;
+    return diff >= 0 && diff <= 30;
+  };
+
+  const filteredStock = stock.filter((s) =>
+    !searchStock ||
+    s.nombre?.toLowerCase().includes(searchStock.toLowerCase()) ||
+    s.codigo_articulo?.toLowerCase().includes(searchStock.toLowerCase()) ||
+    s.referencia_proveedor?.toLowerCase().includes(searchStock.toLowerCase())
+  );
+
+  const filteredMov = movimientos.filter((m) => {
+    const matchSearch = !searchMov ||
+      m.articulo?.nombre?.toLowerCase().includes(searchMov.toLowerCase()) ||
+      m.articulo?.codigo_articulo?.toLowerCase().includes(searchMov.toLowerCase());
+    const matchTipo = !tipoMovFilter || m.tipo === tipoMovFilter;
+    return matchSearch && matchTipo;
+  });
+
+  const stockNeg = stock.filter((s) => s.stock_negativo).length;
+  const stockBM  = stock.filter((s) => s.bajo_minimo).length;
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex justify-center py-20">
+          <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  return (
+    <AppLayout>
+      <div className="max-w-7xl mx-auto animate-fade-in">
+
+        {/* Cabecera */}
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => router.back()}
+            className="p-2 rounded-lg text-surface-400 hover:bg-surface-100">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
+            <Package className="w-5 h-5 text-brand-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-display font-bold text-surface-900">
+                Almacén de obra
+              </h1>
+              {obra && (
+                <span className="badge text-[11px] bg-brand-50 text-brand-600">
+                  {obra.nombre}
+                </span>
+              )}
+            </div>
+            {almacen && (
+              <p className="text-sm text-surface-500 mt-0.5">
+                {almacen.codigo_almacen} · {almacen.nombre}
+                {almacen.ubicacion && ` · ${almacen.ubicacion}`}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Sin almacén: aviso y botón */}
+        {!almacen && (
+          <div className="card p-10 text-center">
+            <Package className="w-10 h-10 mx-auto mb-3 text-surface-300" />
+            <p className="text-sm text-surface-600 mb-2 font-medium">
+              Esta obra no tiene almacén asociado
+            </p>
+            <p className="text-xs text-surface-400 mb-5">
+              El código se generará como OBRA-{obra?.num_presupuesto || "[num_presupuesto]"}.
+              {!obra?.num_presupuesto && " La obra necesita un número de presupuesto o se usará el ID interno."}
+            </p>
+            <button
+              onClick={handleCrearAlmacen}
+              disabled={creandoAlmacen}
+              className="flex items-center gap-2 mx-auto px-5 py-2.5 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+              {creandoAlmacen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+              Crear almacén de esta obra
+            </button>
+          </div>
+        )}
+
+        {almacen && (
+          <>
+            {/* Alertas globales */}
+            {(stockNeg > 0 || stockBM > 0) && (
+              <div className="flex gap-3 mb-4 flex-wrap">
+                {stockNeg > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                    <AlertTriangle className="w-4 h-4" />
+                    {stockNeg} artículo{stockNeg > 1 ? "s" : ""} con stock negativo
+                  </div>
+                )}
+                {stockBM > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                    <TrendingDown className="w-4 h-4" />
+                    {stockBM} artículo{stockBM > 1 ? "s" : ""} por debajo del mínimo
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tabs */}
+            <div className="flex gap-1 mb-4 bg-surface-100 rounded-lg p-1 w-fit">
+              <button onClick={() => setTab("stock")}
+                className={cn("px-4 py-2 text-sm font-medium rounded-md transition-colors",
+                  tab === "stock" ? "bg-white shadow-sm text-surface-900" : "text-surface-500 hover:text-surface-700")}>
+                Stock actual
+                {stock.length > 0 && (
+                  <span className="ml-1.5 text-[10px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-semibold">
+                    {stock.length}
+                  </span>
+                )}
+              </button>
+              <button onClick={() => setTab("movimientos")}
+                className={cn("px-4 py-2 text-sm font-medium rounded-md transition-colors",
+                  tab === "movimientos" ? "bg-white shadow-sm text-surface-900" : "text-surface-500 hover:text-surface-700")}>
+                Movimientos
+                {movimientos.length > 0 && (
+                  <span className="ml-1.5 text-[10px] bg-surface-200 text-surface-600 px-1.5 py-0.5 rounded-full font-semibold">
+                    {movimientos.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* ===== TAB STOCK ===== */}
+            {tab === "stock" && (
+              <div className="card overflow-hidden">
+                <div className="p-3 border-b border-surface-100 flex gap-2 flex-wrap items-center">
+                  <div className="relative flex-1 min-w-48">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
+                    <input
+                      className="w-full pl-9 pr-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none"
+                      placeholder="Buscar artículo, código..."
+                      value={searchStock}
+                      onChange={(e) => setSearchStock(e.target.value)}
+                    />
+                  </div>
+                  <span className="text-xs text-surface-400 ml-auto">{filteredStock.length} artículos</span>
+                </div>
+
+                {filteredStock.length === 0 ? (
+                  <div className="text-center py-14 text-sm text-surface-400">
+                    <Package className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    Sin stock registrado en este almacén
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-surface-100 bg-surface-50">
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Artículo</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden md:table-cell">Ref. proveedor</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Tipo</th>
+                          <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stock</th>
+                          <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden sm:table-cell">Mín.</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Caducidad</th>
+                          <th className="text-center text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredStock.map((s) => {
+                          const cadExp   = isExpired(s.caducidad);
+                          const cadProx  = isExpiringSoon(s.caducidad);
+                          const negativo = s.stock_negativo;
+                          const bajMin   = s.bajo_minimo;
+                          const cero     = Number(s.stock_qty) === 0;
+                          return (
+                            <tr key={s.articulo_id}
+                              className={cn("border-b border-surface-50 hover:bg-surface-50/50 transition-colors",
+                                negativo && "bg-red-50/30",
+                                bajMin && !negativo && "bg-amber-50/20")}>
+                              <td className="px-4 py-2.5">
+                                <div className="font-medium text-surface-900 text-xs">{s.nombre}</div>
+                                <div className="text-[10px] text-surface-400 font-mono">{s.codigo_articulo}</div>
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-surface-500 hidden md:table-cell">
+                                {s.referencia_proveedor || "—"}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={cn("badge text-[10px]", TIPO_ART[s.tipo] || TIPO_ART.otro)}>
+                                  {s.tipo}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <span className={cn("font-mono text-sm font-semibold",
+                                  negativo ? "text-red-600" : bajMin ? "text-amber-600" : cero ? "text-surface-400" : "text-surface-900")}>
+                                  {negativo && <AlertTriangle className="w-3 h-3 inline mr-1" />}
+                                  {Number(s.stock_qty).toFixed(2)}
+                                </span>
+                                <span className="text-[10px] text-surface-400 ml-1">{s.unidad}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono text-xs text-surface-400 hidden sm:table-cell">
+                                {s.stock_minimo_def > 0 ? Number(s.stock_minimo_def).toFixed(2) : "—"}
+                              </td>
+                              <td className="px-4 py-2.5 hidden lg:table-cell">
+                                {s.caducidad ? (
+                                  <span className={cn("flex items-center gap-1 text-xs",
+                                    cadExp ? "text-red-600" : cadProx ? "text-amber-600" : "text-surface-500")}>
+                                    {(cadExp || cadProx) && <AlertTriangle className="w-3 h-3" />}
+                                    <Calendar className="w-3 h-3" />
+                                    {new Date(s.caducidad).toLocaleDateString("es-ES")}
+                                  </span>
+                                ) : <span className="text-surface-300 text-xs">—</span>}
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                <div className="flex items-center justify-center gap-1 flex-wrap">
+                                  {negativo && <span className="badge text-[9px] bg-red-100 text-red-700">Negativo</span>}
+                                  {bajMin && !negativo && <span className="badge text-[9px] bg-amber-100 text-amber-700">Bajo mín.</span>}
+                                  {cero && !negativo && <span className="badge text-[9px] bg-surface-100 text-surface-500">Sin stock</span>}
+                                  {cadExp && <span className="badge text-[9px] bg-red-100 text-red-700">Caducado</span>}
+                                  {cadProx && !cadExp && <span className="badge text-[9px] bg-amber-100 text-amber-700">Caduca pronto</span>}
+                                  {!negativo && !bajMin && !cero && !cadExp && !cadProx && (
+                                    <span className="badge text-[9px] bg-emerald-100 text-emerald-700">OK</span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===== TAB MOVIMIENTOS ===== */}
+            {tab === "movimientos" && (
+              <div className="card overflow-hidden">
+                <div className="p-3 border-b border-surface-100 flex gap-2 flex-wrap items-center">
+                  <div className="relative flex-1 min-w-48">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400" />
+                    <input
+                      className="w-full pl-9 pr-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none"
+                      placeholder="Buscar artículo, código..."
+                      value={searchMov}
+                      onChange={(e) => setSearchMov(e.target.value)}
+                    />
+                  </div>
+                  <select value={tipoMovFilter} onChange={(e) => setTipoMovFilter(e.target.value)}
+                    className="px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none">
+                    <option value="">Todos los tipos</option>
+                    {Object.entries(TIPO_MOV).map(([k, v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-surface-400 ml-auto">{filteredMov.length} movimientos</span>
+                </div>
+
+                {filteredMov.length === 0 ? (
+                  <div className="text-center py-14 text-sm text-surface-400">
+                    <ArrowLeftRight className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    Sin movimientos registrados para este almacén
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-surface-100 bg-surface-50">
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Fecha</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Tipo</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Artículo</th>
+                          <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Cantidad</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden md:table-cell">Origen</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden md:table-cell">Destino</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Usuario</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Observaciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredMov.map((m) => {
+                          const cfg = TIPO_MOV[m.tipo] || { label: m.tipo, color: "bg-surface-100 text-surface-600", icon: ArrowLeftRight };
+                          const Icon = cfg.icon;
+                          const esSalida = m.tipo === "salida" || m.tipo === "traslado_salida";
+                          return (
+                            <tr key={m.id} className="border-b border-surface-50 hover:bg-surface-50/50 transition-colors">
+                              <td className="px-4 py-2.5 text-xs text-surface-500 font-mono whitespace-nowrap">
+                                {new Date(m.fecha).toLocaleDateString("es-ES")}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={cn("badge text-[10px] flex items-center gap-1 w-fit", cfg.color)}>
+                                  <Icon className="w-2.5 h-2.5" />
+                                  {cfg.label}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <div className="font-medium text-surface-900 text-xs">{m.articulo?.nombre || "—"}</div>
+                                <div className="text-[10px] text-surface-400 font-mono">{m.articulo?.codigo_articulo}</div>
+                                {m.articulo?.referencia_proveedor && (
+                                  <div className="text-[10px] text-surface-300">{m.articulo.referencia_proveedor}</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <span className={cn("font-mono text-sm font-semibold",
+                                  esSalida ? "text-red-600" : "text-emerald-700")}>
+                                  {esSalida ? "−" : "+"}{Number(m.cantidad).toFixed(2)}
+                                </span>
+                                <span className="text-[10px] text-surface-400 ml-1">{m.articulo?.unidad}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-surface-500 hidden md:table-cell">
+                                {m.origen ? (
+                                  <span className={cn(m.origen.codigo_almacen === almacen?.codigo_almacen && "font-semibold text-brand-600")}>
+                                    {m.origen.nombre}
+                                  </span>
+                                ) : "—"}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-surface-500 hidden md:table-cell">
+                                {m.destino ? (
+                                  <span className={cn(m.destino.codigo_almacen === almacen?.codigo_almacen && "font-semibold text-brand-600")}>
+                                    {m.destino.nombre}
+                                  </span>
+                                ) : "—"}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-surface-500 hidden lg:table-cell">
+                                {m.user?.nombre || "—"}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-surface-500 hidden lg:table-cell max-w-[200px] truncate">
+                                {m.motivo && <span className="text-amber-700 font-medium">{m.motivo}</span>}
+                                {m.motivo && m.observaciones && " · "}
+                                {m.observaciones || (!m.motivo && "—")}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </AppLayout>
+  );
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: src\app\obras\[id]\almacen\page.tsx" -ForegroundColor Green
+
+$dst = "src\app\obras\[id]\obra-detail.tsx"
+$content = @'
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -542,3 +1016,274 @@ export default function ObraDetallePage() {
     </AppLayout>
   );
 }
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: src\app\obras\[id]\obra-detail.tsx" -ForegroundColor Green
+
+$dst = "src\app\obras\nueva\page.tsx"
+$content = @'
+"use client";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import AppLayout from "@/components/layout/AppLayout";
+import { createClient } from "@/lib/supabase/client";
+import { useAuthStore } from "@/hooks/useAuth";
+import type { Cliente, EstadoObra } from "@/lib/types/database";
+import { Building2, Loader2, ArrowLeft, X } from "lucide-react";
+import Link from "next/link";
+
+const COLORS = [
+  "#DC2626","#EF4444","#F97316","#F59E0B","#EAB308","#84CC16","#22C55E","#16A34A",
+  "#10B981","#14B8A6","#06B6D4","#0EA5E9","#3B82F6","#2563EB","#6366F1","#4F46E5",
+  "#8B5CF6","#7C3AED","#A855F7","#9333EA","#C026D3","#D946EF","#EC4899","#E11D48",
+  "#B45309","#92400E","#78716C","#57534E","#374151","#1F2937","#0F172A","#065F46",
+];
+
+function NuevaObraContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
+  const { user } = useAuthStore();
+  const supabase = createClient();
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [estados, setEstados] = useState<EstadoObra[]>([]);
+  const [tiposObra, setTiposObra] = useState<any[]>([]);
+  const [rrhhList, setRrhhList] = useState<any[]>([]);
+  const [tiposSeleccionados, setTiposSeleccionados] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(!!editId);
+  const [form, setForm] = useState({
+    nombre: "", cliente_id: "", estado_obra_id: "",
+    direccion: "", localidad: "", provincia: "",
+    num_presupuesto: "", num_factura: "",
+    contacto_obra_nombre: "", contacto_obra_telefono: "", contacto_obra_email: "",
+    responsable_obra_id: "",
+
+    observaciones: "", color: COLORS[Math.floor(Math.random() * COLORS.length)]
+  });
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+      supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
+      supabase.from("tipos_obra").select("*").eq("activo", true).order("nombre").then(r => r).catch(() => ({ data: [] })),
+      supabase.from("recursos_humanos").select("id, nombre").eq("activo", true).order("nombre"),
+    ]).then(([c, e, t, r]) => {
+      setClientes(c.data || []);
+      setEstados(e.data || []);
+      setTiposObra(t.data || []);
+      setRrhhList(r.data || []);
+      if (!editId) {
+        const pendiente = (e.data || []).find((es: EstadoObra) => es.nombre.toLowerCase().includes("pendiente"));
+        if (pendiente) setForm((f) => ({ ...f, estado_obra_id: pendiente.id }));
+      }
+    });
+    if (editId) {
+      supabase.from("obras").select("*, cliente:clientes(*)").eq("id", editId).single().then(async ({ data }) => {
+        if (data) {
+          setForm({
+            nombre: data.nombre, cliente_id: data.cliente_id || "", estado_obra_id: data.estado_obra_id || "",
+            direccion: data.direccion || "", localidad: data.localidad || "", provincia: data.provincia || "",
+            num_presupuesto: data.num_presupuesto || "", num_factura: data.num_factura || "",
+            contacto_obra_nombre: data.contacto_obra_nombre || "", contacto_obra_telefono: data.contacto_obra_telefono || "",
+            contacto_obra_email: data.contacto_obra_email || "",
+            responsable_obra_id: data.responsable_obra_id || "",
+
+            observaciones: data.observaciones || "", color: data.color || COLORS[0],
+          });
+          const { data: tipos } = await supabase.from("obra_tipos_obra").select("tipo_obra_id").eq("obra_id", editId);
+          if (tipos) setTiposSeleccionados(tipos.map((t: any) => t.tipo_obra_id));
+        }
+        setLoadingEdit(false);
+      });
+    }
+  }, [editId]);
+
+  const handleClienteChange = (clienteId: string) => {
+    const cliente = clientes.find((c) => c.id === clienteId);
+    setForm((f) => ({
+      ...f, cliente_id: clienteId,
+      contacto_obra_nombre: f.contacto_obra_nombre || cliente?.contacto || "",
+      contacto_obra_telefono: f.contacto_obra_telefono || cliente?.telefono || "",
+      contacto_obra_email: f.contacto_obra_email || (cliente as any)?.email || "",
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!form.nombre) return; setSaving(true);
+    try {
+      const payload: any = {
+        nombre: form.nombre, cliente_id: form.cliente_id || null,
+        ubicacion: form.direccion || null, estado_obra_id: form.estado_obra_id || null,
+        observaciones: form.observaciones || null, color: form.color,
+        responsable_obra_id: form.responsable_obra_id || null,
+
+      };
+      if (form.direccion) payload.direccion = form.direccion;
+      if (form.localidad) payload.localidad = form.localidad;
+      if (form.provincia) payload.provincia = form.provincia;
+      if (form.num_presupuesto) payload.num_presupuesto = form.num_presupuesto;
+      if (form.num_factura) payload.num_factura = form.num_factura;
+      if (form.contacto_obra_nombre) payload.contacto_obra_nombre = form.contacto_obra_nombre;
+      if (form.contacto_obra_telefono) payload.contacto_obra_telefono = form.contacto_obra_telefono;
+      if (form.contacto_obra_email) payload.contacto_obra_email = form.contacto_obra_email;
+
+      let obraId = editId;
+      if (editId) {
+        const { error } = await (supabase.from("obras") as any).update(payload).eq("id", editId);
+        if (error) throw error;
+      } else {
+        const { data: obra, error } = await (supabase.from("obras") as any)
+          .insert({ ...payload, created_by: user?.id, estado: "planificada", orden_gantt: 9999 })
+          .select().single();
+        if (error) throw error;
+        obraId = obra.id;
+        // Crear almacen automaticamente (silencioso si el trigger ya lo hizo o si falla)
+        try {
+          await (supabase.rpc as any)("crear_almacen_obra", { p_obra_id: obra.id });
+        } catch {
+          // El trigger ya lo habrá creado, o se creará manualmente desde la ficha
+        }
+      }
+
+      if (obraId) {
+        await (supabase.from("obra_tipos_obra") as any).delete().eq("obra_id", obraId);
+        if (tiposSeleccionados.length > 0) {
+          await (supabase.from("obra_tipos_obra") as any).insert(
+            tiposSeleccionados.map((tipoId) => ({ obra_id: obraId, tipo_obra_id: tipoId }))
+          );
+        }
+      }
+      router.push(`/obras/${obraId}`);
+    } catch (err: any) {
+      alert("Error al guardar: " + (err?.message || err));
+      setSaving(false);
+    }
+  };
+
+  const ic = "w-full px-4 py-2.5 bg-surface-50 border border-surface-200 rounded-lg text-sm placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all";
+  if (loadingEdit) return <AppLayout><div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div></AppLayout>;
+
+  const selectedCliente = clientes.find((c) => c.id === form.cliente_id);
+
+  return (
+    <AppLayout><div className="max-w-3xl mx-auto animate-fade-in">
+      <div className="flex items-center gap-3 mb-6">
+        <Link href={editId ? `/obras/${editId}` : "/obras"} className="p-2 rounded-lg text-surface-400 hover:bg-surface-100"><ArrowLeft className="w-5 h-5" /></Link>
+        <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center"><Building2 className="w-5 h-5 text-brand-600" /></div>
+        <h1 className="text-xl font-display font-bold text-surface-900">{editId ? "Editar Obra" : "Nueva Obra"}</h1>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Datos generales</h2>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nombre *</label><input type="text" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Reforma Local" className={ic} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Cliente</label><select value={form.cliente_id} onChange={(e) => handleClienteChange(e.target.value)} className={ic}><option value="">Sin cliente</option>{clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Estado</label><select value={form.estado_obra_id} onChange={(e) => setForm({ ...form, estado_obra_id: e.target.value })} className={ic}><option value="">Sin estado</option>{estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select></div>
+          </div>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Responsable de obra</label>
+            <select value={form.responsable_obra_id} onChange={(e) => setForm({ ...form, responsable_obra_id: e.target.value })} className={ic}>
+              <option value="">Sin responsable</option>
+              {rrhhList.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Tipos de obra</label>
+            <div className="flex flex-wrap gap-1.5">
+              {tiposObra.map((t) => {
+                const selected = tiposSeleccionados.includes(t.id);
+                return (
+                  <button key={t.id} type="button" onClick={() => setTiposSeleccionados(selected ? tiposSeleccionados.filter((x: string) => x !== t.id) : [...tiposSeleccionados, t.id])}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${selected ? "bg-brand-500 text-white border-brand-500" : "bg-white text-surface-600 border-surface-200 hover:border-brand-300"}`}>
+                    {t.nombre}
+                    {selected && <X className="w-3 h-3" />}
+                  </button>
+                );
+              })}
+              {tiposObra.length === 0 && <p className="text-xs text-surface-400">Créalos en Maestros → Tipos de Obra</p>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nº Presupuesto</label><input type="text" value={form.num_presupuesto} onChange={(e) => setForm({ ...form, num_presupuesto: e.target.value })} placeholder="P-2026-001" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Nº Factura</label><input type="text" value={form.num_factura} onChange={(e) => setForm({ ...form, num_factura: e.target.value })} placeholder="F-2026-001" className={ic} /></div>
+          </div>
+        </div>
+
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Dirección de la obra</h2>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Dirección</label><input type="text" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} placeholder="Calle, número..." className={ic} /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Localidad</label><input type="text" value={form.localidad} onChange={(e) => setForm({ ...form, localidad: e.target.value })} placeholder="Ciudad" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Provincia</label><input type="text" value={form.provincia} onChange={(e) => setForm({ ...form, provincia: e.target.value })} placeholder="Provincia" className={ic} /></div>
+          </div>
+        </div>
+
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Contacto</h2>
+          {selectedCliente && (
+            <div className="p-3 bg-surface-50 rounded-lg border border-surface-100">
+              <p className="text-[10px] font-semibold text-surface-400 uppercase mb-1">Datos del cliente (del maestro)</p>
+              <p className="text-sm text-surface-700">{selectedCliente.nombre} · {selectedCliente.telefono || "—"} · {(selectedCliente as any).email || "—"}</p>
+            </div>
+          )}
+          <p className="text-xs text-surface-400">El contacto de obra se copia del cliente pero se puede cambiar:</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Contacto obra</label><input type="text" value={form.contacto_obra_nombre} onChange={(e) => setForm({ ...form, contacto_obra_nombre: e.target.value })} placeholder="Nombre" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Teléfono</label><input type="tel" value={form.contacto_obra_telefono} onChange={(e) => setForm({ ...form, contacto_obra_telefono: e.target.value })} placeholder="Teléfono" className={ic} /></div>
+            <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Email</label><input type="email" value={form.contacto_obra_email} onChange={(e) => setForm({ ...form, contacto_obra_email: e.target.value })} placeholder="email@..." className={ic} /></div>
+          </div>
+        </div>
+
+        {/* Flags especiales */}
+        
+
+        <div className="card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-surface-900">Apariencia</h2>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Color en el Gantt</label>
+            <div className="flex items-center gap-1.5 flex-wrap">{COLORS.map((c) => (<button key={c} type="button" onClick={() => setForm({ ...form, color: c })} className="w-7 h-7 rounded-full border-2 transition-all hover:scale-110" style={{ backgroundColor: c, borderColor: form.color === c ? c : "transparent", transform: form.color === c ? "scale(1.25)" : "", boxShadow: form.color === c ? `0 0 0 3px ${c}30` : "none" }} />))}</div>
+          </div>
+          <div><label className="block text-sm font-medium text-surface-700 mb-1.5">Observaciones</label><textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3} placeholder="Notas..." className={ic + " resize-none"} /></div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <Link href={editId ? `/obras/${editId}` : "/obras"} className="px-4 py-2.5 text-sm text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">Cancelar</Link>
+          <button type="submit" disabled={saving || !form.nombre} className="flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{editId ? "Guardar" : "Crear obra"}</button>
+        </div>
+      </form>
+    </div></AppLayout>
+  );
+}
+
+export default function NuevaObraPage() {
+  return <Suspense><NuevaObraContent /></Suspense>;
+}
+'@
+$dir = Split-Path -Parent $dst
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: src\app\obras\nueva\page.tsx" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "==> Verificando" -ForegroundColor Cyan
+$ok1 = Test-Path -LiteralPath (Join-Path $RepoPath "src\app\obras\[id]\almacen\page.tsx")
+$ok2 = Select-String -Path "src\app\obras\[id]\obra-detail.tsx" -Pattern "almacen completo con movimientos" -Quiet
+$ok3 = Select-String -Path "src\app\obras\nueva\page.tsx" -Pattern "crear_almacen_obra" -Quiet
+if ($ok1) { Write-Host "    OK: pantalla /obras/[id]/almacen creada" -ForegroundColor Green }
+else { Write-Host "    ERROR: falta pantalla almacen de obra" -ForegroundColor Red }
+if ($ok2) { Write-Host "    OK: obra-detail con enlace a pantalla completa" -ForegroundColor Green }
+else { Write-Host "    AVISO: revisar obra-detail" -ForegroundColor Yellow }
+if ($ok3) { Write-Host "    OK: obras/nueva llama a crear_almacen_obra" -ForegroundColor Green }
+else { Write-Host "    AVISO: revisar obras/nueva" -ForegroundColor Yellow }
+Write-Host ""
+Write-Host "RECORDATORIO:" -ForegroundColor Yellow
+Write-Host "  1. Ejecutar 034_backfill_almacenes_obras.sql en Supabase SQL Editor"
+Write-Host "  2. Verificar resultado: la query al final del SQL muestra obras_sin_almacen = 0"
+Write-Host ""
+Write-Host '  git add -A'
+Write-Host '  git commit -m "feat: pantalla almacen de obra con stock y movimientos"'
+Write-Host '  git push'

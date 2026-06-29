@@ -114,6 +114,12 @@ function NuevaObraContent() {
           .select().single();
         if (error) throw error;
         obraId = obra.id;
+        // Crear almacen automaticamente (silencioso si el trigger ya lo hizo o si falla)
+        try {
+          await (supabase.rpc as any)("crear_almacen_obra", { p_obra_id: obra.id });
+        } catch {
+          // El trigger ya lo habrá creado, o se creará manualmente desde la ficha
+        }
       }
 
       if (obraId) {
