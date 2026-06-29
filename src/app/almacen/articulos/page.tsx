@@ -15,7 +15,7 @@ const empty = {
   referencia_proveedor: "", codigo_articulo: "", codigo_barras: "",
   nombre: "", tipo: "material", tipo_articulo_id: "",
   proveedor_id: "",
-  unidad: "ud", stock_minimo: "0", caducidad: "", descripcion: "",
+  unidad: "ud", stock_minimo: "0", caducidad: "", descripcion: "", foto_url: "",
 };
 const ic = "w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20";
 
@@ -24,6 +24,8 @@ export default function ArticulosPage() {
   const supabase = createClient();
   const isAdmin = user?.role === "admin";
   const fileRef = useRef<HTMLInputElement>(null);
+  const fotoRef = useRef<HTMLInputElement>(null);
+  const [uploadingFoto, setUploadingFoto] = useState(false);
 
   const [data, setData] = useState<any[]>([]);
   const [proveedores, setProveedores] = useState<any[]>([]);
@@ -42,7 +44,7 @@ export default function ArticulosPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [aR, pR, tR] = await Promise.all([
-      (supabase.from("articulos") as any).select("*, proveedor:proveedores(nombre), tipo_art:tipos_articulo(id,nombre,activo,orden)").eq("activo", true).order("nombre"),
+      (supabase.from("articulos") as any).select("*, proveedor:proveedores(nombre), tipo_art:tipos_articulo(id,nombre,activo,orden), foto_url").eq("activo", true).order("nombre"),
       (supabase.from("proveedores") as any).select("id, nombre").eq("activo", true).order("nombre"),
       // Tipos activos + los inactivos que tengan articulos asociados
       (supabase.from("tipos_articulo") as any).select("id, nombre, activo, orden").order("orden").order("nombre"),
@@ -80,6 +82,7 @@ export default function ArticulosPage() {
         tipo_articulo_id: form.tipo_articulo_id || null,
         caducidad: form.caducidad || null,
         stock_minimo: parseFloat(form.stock_minimo) || 0,
+        foto_url: form.foto_url || null,
       };
       if (editId) {
         const { error: err } = await (supabase.from("articulos") as any).update(payload).eq("id", editId);
@@ -109,6 +112,7 @@ export default function ArticulosPage() {
       stock_minimo: String(a.stock_minimo ?? 0),
       caducidad: a.caducidad || "",
       descripcion: a.descripcion || "",
+      foto_url: a.foto_url || "",
     });
     setEditId(a.id); setError(null); setModalOpen(true);
   };
@@ -286,7 +290,18 @@ export default function ArticulosPage() {
                     <tr key={a.id} className="border-b border-surface-50 hover:bg-surface-50/50 transition-colors">
                       <td className="px-4 py-2.5 font-mono text-xs text-surface-500">{a.referencia_proveedor}</td>
                       <td className="px-4 py-2.5 font-mono text-xs text-surface-600">{a.codigo_articulo}</td>
-                      <td className="px-4 py-2.5 font-medium text-surface-900">{a.nombre}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          {a.foto_url ? (
+                            <img src={a.foto_url} alt={a.nombre} className="w-8 h-8 rounded object-cover shrink-0 border border-surface-200" />
+                          ) : (
+                            <div className="w-8 h-8 rounded bg-surface-100 flex items-center justify-center shrink-0">
+                              <Package className="w-4 h-4 text-surface-300" />
+                            </div>
+                          )}
+                          <span className="font-medium text-surface-900">{a.nombre}</span>
+                        </div>
+                      </td>
                       <td className="px-4 py-2.5">
                         <span className={cn("badge text-[10px]",
                           a.tipo === "material" ? "bg-blue-100 text-blue-700" :
@@ -329,6 +344,49 @@ export default function ArticulosPage() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? "Editar artículo" : "Nuevo artículo"} size="lg">
         <form onSubmit={handleSave} className="space-y-3">
+          {/* Foto del artículo */}
+          <div className="flex items-center gap-4">
+            {form.foto_url ? (
+              <img src={form.foto_url} alt="foto" className="w-16 h-16 rounded-lg object-cover border border-surface-200" />
+            ) : (
+              <div className="w-16 h-16 rounded-lg bg-surface-100 flex items-center justify-center border border-surface-200">
+                <Package className="w-7 h-7 text-surface-300" />
+              </div>
+            )}
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-surface-600 mb-1">Foto del artículo</label>
+              <button type="button" disabled={uploadingFoto}
+                onClick={() => fotoRef.current?.click()}
+                className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200 disabled:opacity-60">
+                {uploadingFoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                {form.foto_url ? "Cambiar foto" : "Subir foto"}
+              </button>
+              {form.foto_url && (
+                <button type="button" onClick={() => setForm({ ...form, foto_url: "" })}
+                  className="ml-2 text-[10px] text-red-500 hover:text-red-700">Quitar</button>
+              )}
+              <input ref={fotoRef} type="file" accept="image/*" className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingFoto(true);
+                  try {
+                    const ext = file.name.split(".").pop();
+                    const path = `articulos/${Date.now()}.${ext}`;
+                    const { error: upErr } = await supabase.storage.from("fotos").upload(path, file, { upsert: true });
+                    if (upErr) throw upErr;
+                    const { data: urlData } = supabase.storage.from("fotos").getPublicUrl(path);
+                    setForm((f) => ({ ...f, foto_url: urlData.publicUrl }));
+                  } catch (err: any) {
+                    setError("Error al subir foto: " + (err.message || err));
+                  } finally {
+                    setUploadingFoto(false);
+                    if (fotoRef.current) fotoRef.current.value = "";
+                  }
+                }}
+              />
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs font-medium text-surface-600 mb-1">Referencia proveedor *</label><input required className={ic} value={form.referencia_proveedor} onChange={(e) => setForm({ ...form, referencia_proveedor: e.target.value })} placeholder="REF-001" /></div>
             <div><label className="block text-xs font-medium text-surface-600 mb-1">Código artículo</label><input className={ic} value={form.codigo_articulo} onChange={(e) => setForm({ ...form, codigo_articulo: e.target.value })} placeholder="Auto-generado si vacío" /></div>
