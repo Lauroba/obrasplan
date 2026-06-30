@@ -205,18 +205,39 @@ export async function POST(req: NextRequest) {
 
       // Sin historial vinculado: borrado fisico seguro.
       // Orden importante: primero Auth (lo mas dificil de revertir/mas propenso
-      // a fallar por constraints ocultos), y solo si funciona se borra el resto.
-      // Asi nunca queda el usuario a medio borrar.
+      // a fallar por constraints internas de Supabase no siempre visibles
+      // desde el esquema public), y solo si funciona se borra el resto.
       if (userRow) {
         const { error: authDelErr } = await supabase.auth.admin.deleteUser(userRow.id);
+
         if (authDelErr) {
+          // FALLBACK AUTOMATICO: si Supabase no permite el borrado fisico
+          // (error interno "Database error deleting user", frecuente cuando
+          // hay tablas del esquema auth -- identities, sessions, mfa_factors --
+          // con registros para ese usuario), no dejamos al usuario en error:
+          // lo desactivamos de forma segura, que es el resultado funcional
+          // equivalente (pierde acceso por completo).
+          await supabase.auth.admin.updateUserById(userRow.id, { ban_duration: "876600h" });
+          await (supabase.from("users") as any).update({ activo: false }).eq("id", userRow.id);
+          await (supabase.from("recursos_humanos") as any).update({ activo: false }).eq("id", recurso_id);
+
+          await (supabase.from("audit_log") as any).insert({
+            accion: "editar", entidad: "users", modulo: "usuarios",
+            entidad_id: userRow.id,
+            descripcion: `Eliminación física no disponible (${authDelErr.message}). Usuario desactivado como alternativa: ${recurso.email || recurso.nombre}`,
+            resultado: "exito", origen: "api_route",
+          });
+
           return NextResponse.json({
-            error: `No se pudo eliminar de Auth: ${authDelErr.message}. Es posible que existan registros en otras tablas vinculados a este usuario que no hemos detectado. El usuario NO se ha modificado. Usa "Desactivar acceso" en su lugar.`,
-          }, { status: 500 });
+            success: true,
+            fallback: true,
+            message: `No fue posible eliminar físicamente el usuario de Supabase Auth (limitación interna de Supabase). En su lugar, se ha desactivado por completo: ya no puede acceder a la aplicación. Su historial y registro permanecen, pero sin acceso.`,
+          });
         }
+
         // Auth borrado con exito -> el perfil de public.users se borra
-        // automaticamente por el ON DELETE CASCADE de users.id -> auth.users.id,
-        // pero lo forzamos explicitamente por si acaso.
+        // automaticamente por el ON DELETE CASCADE, pero lo forzamos
+        // explicitamente por si acaso.
         await (supabase.from("users") as any).delete().eq("id", userRow.id);
       }
 

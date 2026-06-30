@@ -23,6 +23,8 @@ export default function RecursosHumanosPage() {
   const [error, setError] = useState(""); const [showPassword, setShowPassword] = useState(false);
   const [syncing, setSyncing] = useState(false); const [syncResult, setSyncResult] = useState("");
   const [deleteBlockedMsg, setDeleteBlockedMsg] = useState<string | null>(null);
+  const [editingActivo, setEditingActivo] = useState(true);
+  const [togglingAccess, setTogglingAccess] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [dbRoles, setDbRoles] = useState<{ id: string; nombre: string; is_admin: boolean }[]>([]);
   const isAdmin = user?.role === "admin"; const supabase = createClient();
@@ -79,6 +81,19 @@ export default function RecursosHumanosPage() {
   const handleToggleAccess = async (recursoId: string, currentlyActive: boolean) => {
     await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "toggle_access", recurso_id: recursoId, activo: !currentlyActive }) });
     fetchData();
+  };
+
+  const handleToggleAccessInModal = async () => {
+    if (!editingId) return;
+    setTogglingAccess(true);
+    try {
+      await fetch("/api/users", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_access", recurso_id: editingId, activo: !editingActivo }),
+      });
+      setEditingActivo(!editingActivo);
+      fetchData();
+    } finally { setTogglingAccess(false); }
   };
 
   const handleDelete = async (item: RHWithUser) => {
@@ -150,7 +165,7 @@ export default function RecursosHumanosPage() {
       )}
       <DataTable data={data} columns={columns} title="Trabajadores" loading={loading} searchPlaceholder="Buscar por nombre, perfil, email..." searchKeys={["nombre", "perfil", "email", "telefono"]}
         onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setError(""); setModalOpen(true); } : undefined}
-        onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false }); setEditingId(item.id); setError(""); setModalOpen(true); } : undefined}
+        onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false }); setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true); } : undefined}
         addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={isAdmin} onDelete={handleDelete} />
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar trabajador" : "Nuevo trabajador"} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -181,6 +196,24 @@ export default function RecursosHumanosPage() {
               </div>
             </div>
           </div>
+          {/* Activar/Desactivar acceso (solo al editar) */}
+          {editingId && (
+            <div className="border-t border-surface-200 pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-surface-900">Acceso a la aplicación</span>
+                  <p className="text-xs text-surface-400">{editingActivo ? "Este usuario puede iniciar sesión." : "Este usuario NO puede iniciar sesión."}</p>
+                </div>
+                <button type="button" onClick={handleToggleAccessInModal} disabled={togglingAccess}
+                  className={cn("flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-60",
+                    editingActivo ? "text-red-700 bg-red-50 hover:bg-red-100" : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100")}>
+                  {togglingAccess && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {!togglingAccess && (editingActivo ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />)}
+                  {editingActivo ? "Desactivar acceso" : "Activar acceso"}
+                </button>
+              </div>
+            </div>
+          )}
           {/* Asignable flag */}
           <div className="border-t border-surface-200 pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
