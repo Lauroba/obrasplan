@@ -167,6 +167,34 @@ export async function POST(req: NextRequest) {
         .eq("recurso_tipo", "humano").eq("recurso_id", recurso_id);
       if ((asigCount || 0) > 0) blocking.push(`${asigCount} asignación(es) en el planificador`);
 
+      if (userRow) {
+        const { count: checklistCount } = await supabase
+          .from("checklists").select("id", { count: "exact", head: true }).eq("created_by", userRow.id);
+        if ((checklistCount || 0) > 0) blocking.push(`${checklistCount} checklist(s) creado(s)`);
+
+        const { count: checklistItemCount } = await supabase
+          .from("checklist_items").select("id", { count: "exact", head: true }).eq("completado_por", userRow.id);
+        if ((checklistItemCount || 0) > 0) blocking.push(`${checklistItemCount} item(s) de checklist completado(s)`);
+
+        const { count: notaCreCount } = await supabase
+          .from("planificador_notas").select("id", { count: "exact", head: true }).eq("created_by", userRow.id);
+        const { count: notaUpdCount } = await supabase
+          .from("planificador_notas").select("id", { count: "exact", head: true }).eq("updated_by", userRow.id);
+        if ((notaCreCount || 0) + (notaUpdCount || 0) > 0) blocking.push(`${(notaCreCount || 0) + (notaUpdCount || 0)} nota(s) del planificador`);
+
+        const { count: conflictoCount } = await supabase
+          .from("conflictos_revisados").select("id", { count: "exact", head: true }).eq("revisado_por", userRow.id);
+        if ((conflictoCount || 0) > 0) blocking.push(`${conflictoCount} conflicto(s) revisado(s)`);
+
+        const { count: tareaCompCount } = await supabase
+          .from("tareas").select("id", { count: "exact", head: true }).eq("completada_by", userRow.id);
+        if ((tareaCompCount || 0) > 0) blocking.push(`${tareaCompCount} tarea(s) completada(s) por este usuario`);
+
+        const { count: georadarCount } = await supabase
+          .from("georadar_pasadas").select("id", { count: "exact", head: true }).eq("created_by", userRow.id);
+        if ((georadarCount || 0) > 0) blocking.push(`${georadarCount} pasada(s) de georadar`);
+      }
+
       if (blocking.length > 0) {
         return NextResponse.json({
           error: `No se puede eliminar: este usuario tiene historial vinculado (${blocking.join(", ")}). Usa "Desactivar acceso" en su lugar para conservar la trazabilidad.`,
@@ -175,21 +203,27 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
 
-      // Sin historial vinculado: borrado fisico seguro
-      // 1. Borrar perfil de public.users (si existe)
+      // Sin historial vinculado: borrado fisico seguro.
+      // Orden importante: primero Auth (lo mas dificil de revertir/mas propenso
+      // a fallar por constraints ocultos), y solo si funciona se borra el resto.
+      // Asi nunca queda el usuario a medio borrar.
       if (userRow) {
-        await (supabase.from("users") as any).delete().eq("id", userRow.id);
-        // 2. Borrar de Supabase Auth (servidor) — esto es "borrar del servidor"
         const { error: authDelErr } = await supabase.auth.admin.deleteUser(userRow.id);
         if (authDelErr) {
-          return NextResponse.json({ error: `Usuario eliminado de la app pero no de Auth: ${authDelErr.message}` }, { status: 500 });
+          return NextResponse.json({
+            error: `No se pudo eliminar de Auth: ${authDelErr.message}. Es posible que existan registros en otras tablas vinculados a este usuario que no hemos detectado. El usuario NO se ha modificado. Usa "Desactivar acceso" en su lugar.`,
+          }, { status: 500 });
         }
+        // Auth borrado con exito -> el perfil de public.users se borra
+        // automaticamente por el ON DELETE CASCADE de users.id -> auth.users.id,
+        // pero lo forzamos explicitamente por si acaso.
+        await (supabase.from("users") as any).delete().eq("id", userRow.id);
       }
 
-      // 3. Borrar el recurso humano
+      // Borrar el recurso humano
       const { error: recursoDelErr } = await (supabase.from("recursos_humanos") as any).delete().eq("id", recurso_id);
       if (recursoDelErr) {
-        return NextResponse.json({ error: `Error al eliminar recurso: ${recursoDelErr.message}` }, { status: 500 });
+        return NextResponse.json({ error: `Usuario eliminado de Auth y de la app, pero no se pudo borrar el recurso humano: ${recursoDelErr.message}` }, { status: 500 });
       }
 
       // 4. Auditoria
