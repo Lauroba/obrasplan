@@ -262,14 +262,20 @@ export async function POST(req: NextRequest) {
       const { recurso_id, activo } = body;
       if (!recurso_id) return NextResponse.json({ error: "recurso_id obligatorio" }, { status: 400 });
 
-      // maybeSingle (no single): si no hay fila o hay mas de una, no lanza
-      // excepcion silenciosa -- devolvemos un error claro al frontend.
-      const { data: userRow, error: userFindErr } = await supabase
-        .from("users").select("id, email").eq("recurso_id", recurso_id).maybeSingle();
+      // select() en vez de maybeSingle(): si hay duplicados (mismo recurso_id
+      // en varias filas de users, un problema de datos antiguo), no queremos
+      // que la llamada falle por completo -- tomamos la fila mas reciente
+      // y avisamos del duplicado en el mensaje de auditoria.
+      const { data: userRows, error: userFindErr } = await supabase
+        .from("users").select("id, email, created_at").eq("recurso_id", recurso_id)
+        .order("created_at", { ascending: false });
 
       if (userFindErr) {
         return NextResponse.json({ error: `Error buscando el usuario vinculado: ${userFindErr.message}` }, { status: 500 });
       }
+
+      const userRow = userRows && userRows.length > 0 ? userRows[0] : null;
+      const hasDuplicates = (userRows?.length || 0) > 1;
 
       if (userRow) {
         const { error: updErr } = await (supabase.from("users") as any).update({ activo }).eq("id", userRow.id);
@@ -289,7 +295,7 @@ export async function POST(req: NextRequest) {
         await (supabase.from("audit_log") as any).insert({
           accion: "editar", entidad: "users", modulo: "usuarios",
           entidad_id: userRow.id,
-          descripcion: `Acceso ${activo ? "activado" : "desactivado"} para: ${(userRow as any).email}`,
+          descripcion: `Acceso ${activo ? "activado" : "desactivado"} para: ${(userRow as any).email}${hasDuplicates ? " (AVISO: hay perfiles duplicados para este recurso_id, se usó el más reciente)" : ""}`,
           resultado: "exito", origen: "api_route",
         });
       } else {
