@@ -131,6 +131,77 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    // ---- DELETE USER (fisico) ----
+    // Solo permite borrado fisico si el usuario NO tiene historial vinculado
+    // (partes_diarios.created_by es RESTRICT -> el DELETE fallaria igualmente,
+    // pero comprobamos antes para dar un mensaje claro y no intentar un borrado
+    // parcial que deje datos inconsistentes).
+    if (action === "delete") {
+      const { recurso_id } = body;
+      if (!recurso_id) return NextResponse.json({ error: "recurso_id obligatorio" }, { status: 400 });
+
+      const { data: recurso } = await supabase.from("recursos_humanos").select("id, nombre, email").eq("id", recurso_id).single();
+      if (!recurso) return NextResponse.json({ error: "Recurso no encontrado" }, { status: 404 });
+
+      const { data: userRow } = await supabase.from("users").select("id, email").eq("recurso_id", recurso_id).maybeSingle();
+
+      // Comprobar historial vinculado antes de borrar nada
+      const blocking: string[] = [];
+
+      if (userRow) {
+        const { count: partesCount } = await supabase
+          .from("partes_diarios").select("id", { count: "exact", head: true }).eq("created_by", userRow.id);
+        if ((partesCount || 0) > 0) blocking.push(`${partesCount} parte(s) diario(s) creado(s)`);
+
+        const { count: movCount } = await supabase
+          .from("movimientos_almacen").select("id", { count: "exact", head: true }).eq("created_by", userRow.id);
+        if ((movCount || 0) > 0) blocking.push(`${movCount} movimiento(s) de almacén registrado(s)`);
+      }
+
+      const { count: trabajadorCount } = await supabase
+        .from("parte_trabajadores").select("id", { count: "exact", head: true }).eq("recurso_id", recurso_id);
+      if ((trabajadorCount || 0) > 0) blocking.push(`${trabajadorCount} presencia(s) en partes diarios`);
+
+      const { count: asigCount } = await supabase
+        .from("asignaciones").select("id", { count: "exact", head: true })
+        .eq("recurso_tipo", "humano").eq("recurso_id", recurso_id);
+      if ((asigCount || 0) > 0) blocking.push(`${asigCount} asignación(es) en el planificador`);
+
+      if (blocking.length > 0) {
+        return NextResponse.json({
+          error: `No se puede eliminar: este usuario tiene historial vinculado (${blocking.join(", ")}). Usa "Desactivar acceso" en su lugar para conservar la trazabilidad.`,
+          blocked: true,
+          details: blocking,
+        }, { status: 409 });
+      }
+
+      // Sin historial vinculado: borrado fisico seguro
+      // 1. Borrar perfil de public.users (si existe)
+      if (userRow) {
+        await (supabase.from("users") as any).delete().eq("id", userRow.id);
+        // 2. Borrar de Supabase Auth (servidor) — esto es "borrar del servidor"
+        const { error: authDelErr } = await supabase.auth.admin.deleteUser(userRow.id);
+        if (authDelErr) {
+          return NextResponse.json({ error: `Usuario eliminado de la app pero no de Auth: ${authDelErr.message}` }, { status: 500 });
+        }
+      }
+
+      // 3. Borrar el recurso humano
+      const { error: recursoDelErr } = await (supabase.from("recursos_humanos") as any).delete().eq("id", recurso_id);
+      if (recursoDelErr) {
+        return NextResponse.json({ error: `Error al eliminar recurso: ${recursoDelErr.message}` }, { status: 500 });
+      }
+
+      // 4. Auditoria
+      await (supabase.from("audit_log") as any).insert({
+        accion: "eliminar", entidad: "users", modulo: "usuarios",
+        descripcion: `Usuario eliminado completamente (app + servidor Auth): ${recurso.email || recurso.nombre}`,
+        resultado: "exito", origen: "api_route",
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
     // ---- TOGGLE ACCESS ----
     if (action === "toggle_access") {
       const { recurso_id, activo } = body;

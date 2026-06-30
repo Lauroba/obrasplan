@@ -22,6 +22,8 @@ export default function RecursosHumanosPage() {
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""); const [showPassword, setShowPassword] = useState(false);
   const [syncing, setSyncing] = useState(false); const [syncResult, setSyncResult] = useState("");
+  const [deleteBlockedMsg, setDeleteBlockedMsg] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [dbRoles, setDbRoles] = useState<{ id: string; nombre: string; is_admin: boolean }[]>([]);
   const isAdmin = user?.role === "admin"; const supabase = createClient();
 
@@ -79,6 +81,25 @@ export default function RecursosHumanosPage() {
     fetchData();
   };
 
+  const handleDelete = async (item: RHWithUser) => {
+    setDeleteBlockedMsg(null);
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", recurso_id: item.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setDeleteBlockedMsg(json.error || "No se pudo eliminar el usuario");
+        return;
+      }
+      fetchData();
+    } catch (err: any) {
+      setDeleteBlockedMsg(err.message || "Error al eliminar");
+    } finally { setDeleting(false); }
+  };
+
   const handleSync = async () => {
     setSyncing(true); setSyncResult("");
     try { const res = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync" }) }); const result = await res.json(); setSyncResult(result.message || "Sincronización completada"); fetchData(); }
@@ -121,10 +142,16 @@ export default function RecursosHumanosPage() {
         {isAdmin && <button onClick={handleSync} disabled={syncing} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-violet-500 rounded-lg hover:bg-violet-600 disabled:opacity-60 ml-auto shrink-0">{syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}Sincronizar usuarios</button>}
       </div>
       {syncResult && <div className="mb-4 p-3 bg-violet-50 border border-violet-200 rounded-lg text-sm text-violet-700">{syncResult}</div>}
+      {deleteBlockedMsg && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start justify-between gap-3">
+          <span>{deleteBlockedMsg}</span>
+          <button onClick={() => setDeleteBlockedMsg(null)} className="text-amber-500 hover:text-amber-700 shrink-0">✕</button>
+        </div>
+      )}
       <DataTable data={data} columns={columns} title="Trabajadores" loading={loading} searchPlaceholder="Buscar por nombre, perfil, email..." searchKeys={["nombre", "perfil", "email", "telefono"]}
         onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setError(""); setModalOpen(true); } : undefined}
         onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false }); setEditingId(item.id); setError(""); setModalOpen(true); } : undefined}
-        addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={false} />
+        addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={isAdmin} onDelete={handleDelete} />
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar trabajador" : "Nuevo trabajador"} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
