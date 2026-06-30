@@ -260,23 +260,51 @@ export async function POST(req: NextRequest) {
     // ---- TOGGLE ACCESS ----
     if (action === "toggle_access") {
       const { recurso_id, activo } = body;
-      const { data: userRow } = await supabase.from("users").select("id, email").eq("recurso_id", recurso_id).single();
+      if (!recurso_id) return NextResponse.json({ error: "recurso_id obligatorio" }, { status: 400 });
+
+      // maybeSingle (no single): si no hay fila o hay mas de una, no lanza
+      // excepcion silenciosa -- devolvemos un error claro al frontend.
+      const { data: userRow, error: userFindErr } = await supabase
+        .from("users").select("id, email").eq("recurso_id", recurso_id).maybeSingle();
+
+      if (userFindErr) {
+        return NextResponse.json({ error: `Error buscando el usuario vinculado: ${userFindErr.message}` }, { status: 500 });
+      }
+
       if (userRow) {
-        await (supabase.from("users") as any).update({ activo }).eq("id", userRow.id);
-        // Banear o desbanear en Supabase Auth
-        if (!activo) {
-          await supabase.auth.admin.updateUserById(userRow.id, { ban_duration: "876600h" });
-        } else {
-          await supabase.auth.admin.updateUserById(userRow.id, { ban_duration: "none" });
+        const { error: updErr } = await (supabase.from("users") as any).update({ activo }).eq("id", userRow.id);
+        if (updErr) {
+          return NextResponse.json({ error: `No se pudo actualizar el perfil: ${updErr.message}` }, { status: 500 });
         }
+
+        // Banear o desbanear en Supabase Auth
+        const { error: banErr } = await supabase.auth.admin.updateUserById(
+          userRow.id,
+          { ban_duration: activo ? "none" : "876600h" }
+        );
+        if (banErr) {
+          return NextResponse.json({ error: `Perfil actualizado pero no se pudo cambiar el acceso en Auth: ${banErr.message}` }, { status: 500 });
+        }
+
         await (supabase.from("audit_log") as any).insert({
           accion: "editar", entidad: "users", modulo: "usuarios",
           entidad_id: userRow.id,
           descripcion: `Acceso ${activo ? "activado" : "desactivado"} para: ${(userRow as any).email}`,
           resultado: "exito", origen: "api_route",
         });
+      } else {
+        // No hay perfil en public.users vinculado a este recurso -- no se puede
+        // banear en Auth (no sabemos el id), pero al menos avisamos con claridad.
+        return NextResponse.json({
+          error: "Este trabajador no tiene un usuario de acceso vinculado en la tabla users (recurso_id no encontrado). No se puede activar/desactivar el acceso hasta que tenga un perfil de usuario.",
+        }, { status: 404 });
       }
-      await (supabase.from("recursos_humanos") as any).update({ activo }).eq("id", recurso_id);
+
+      const { error: recursoErr } = await (supabase.from("recursos_humanos") as any).update({ activo }).eq("id", recurso_id);
+      if (recursoErr) {
+        return NextResponse.json({ error: `Acceso actualizado pero no se pudo actualizar el recurso: ${recursoErr.message}` }, { status: 500 });
+      }
+
       return NextResponse.json({ success: true });
     }
 

@@ -79,20 +79,33 @@ export default function RecursosHumanosPage() {
   };
 
   const handleToggleAccess = async (recursoId: string, currentlyActive: boolean) => {
-    await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "toggle_access", recurso_id: recursoId, activo: !currentlyActive }) });
+    const res = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "toggle_access", recurso_id: recursoId, activo: !currentlyActive }) });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setDeleteBlockedMsg(json.error || "No se pudo cambiar el acceso");
+      return;
+    }
     fetchData();
   };
 
   const handleToggleAccessInModal = async () => {
     if (!editingId) return;
     setTogglingAccess(true);
+    setDeleteBlockedMsg(null);
     try {
-      await fetch("/api/users", {
+      const res = await fetch("/api/users", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "toggle_access", recurso_id: editingId, activo: !editingActivo }),
       });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteBlockedMsg(json.error || "No se pudo cambiar el acceso");
+        return;
+      }
       setEditingActivo(!editingActivo);
       fetchData();
+    } catch (err: any) {
+      setDeleteBlockedMsg(err.message || "Error al cambiar el acceso");
     } finally { setTogglingAccess(false); }
   };
 
@@ -170,6 +183,7 @@ export default function RecursosHumanosPage() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar trabajador" : "Nuevo trabajador"} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+          {deleteBlockedMsg && <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">{deleteBlockedMsg}</div>}
           <div className="flex items-start gap-5">
             <PhotoUpload currentUrl={form.foto_url || null} folder="humano" entityId={editingId || undefined} size="lg" onUploaded={(url) => setForm({ ...form, foto_url: url })} onRemoved={() => setForm({ ...form, foto_url: "" })} />
             <div className="flex-1 space-y-4">
