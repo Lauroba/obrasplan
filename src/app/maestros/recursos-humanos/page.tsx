@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils/cn";
 
 interface RHWithUser extends RecursoHumano { user_role?: string; user_activo?: boolean; user_id?: string; }
 
-const emptyForm = { nombre: "", perfil: "", telefono: "", email: "", password: "", role: "partes", rol_id: "", foto_url: "", asignable: true };
+const emptyForm = { nombre: "", perfil: "", telefono: "", email: "", password: "", role: "partes", rol_id: "", foto_url: "", asignable: true, fecha_inicio: new Date().toISOString().slice(0, 10), fecha_fin: "" };
 
 export default function RecursosHumanosPage() {
   const { user } = useAuthStore();
@@ -53,7 +53,7 @@ export default function RecursosHumanosPage() {
     e.preventDefault(); setError(""); setSaving(true);
     // Update asignable flag directly on recurso
     if (editingId) {
-      await (supabase.from("recursos_humanos") as any).update({ asignable: form.asignable }).eq("id", editingId);
+      await (supabase.from("recursos_humanos") as any).update({ asignable: form.asignable, fecha_inicio: form.fecha_inicio || null, fecha_fin: form.fecha_fin || null }).eq("id", editingId);
     }
     try {
       const res = await fetch("/api/users", {
@@ -71,8 +71,11 @@ export default function RecursosHumanosPage() {
     if (!editingId) {
       // Find the newly created recurso by name+email
       const { data: newR } = await supabase.from("recursos_humanos").select("id").eq("email", form.email).order("created_at", { ascending: false }).limit(1);
-      if (newR?.[0] && !form.asignable) {
-        await (supabase.from("recursos_humanos") as any).update({ asignable: false }).eq("id", newR[0].id);
+      if (newR?.[0]) {
+        const updatePayload: any = { fecha_inicio: form.fecha_inicio || new Date().toISOString().slice(0, 10) };
+        if (!form.asignable) updatePayload.asignable = false;
+        if (form.fecha_fin) updatePayload.fecha_fin = form.fecha_fin;
+        await (supabase.from("recursos_humanos") as any).update(updatePayload).eq("id", newR[0].id);
       }
     }
     setSaving(false); setModalOpen(false); fetchData();
@@ -93,16 +96,30 @@ export default function RecursosHumanosPage() {
     setTogglingAccess(true);
     setDeleteBlockedMsg(null);
     try {
+      const nuevoEstado = !editingActivo;
       const res = await fetch("/api/users", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "toggle_access", recurso_id: editingId, activo: !editingActivo }),
+        body: JSON.stringify({ action: "toggle_access", recurso_id: editingId, activo: nuevoEstado }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setDeleteBlockedMsg(json.error || "No se pudo cambiar el acceso");
         return;
       }
-      setEditingActivo(!editingActivo);
+      // Si se desactiva, fijar fecha_fin = hoy en recursos_humanos
+      const hoy = new Date().toISOString().slice(0, 10);
+      if (!nuevoEstado) {
+        await (createClient().from("recursos_humanos") as any)
+          .update({ fecha_fin: hoy, activo: false })
+          .eq("id", editingId);
+        setForm((f: any) => ({ ...f, fecha_fin: hoy }));
+      } else {
+        await (createClient().from("recursos_humanos") as any)
+          .update({ fecha_fin: null, activo: true })
+          .eq("id", editingId);
+        setForm((f: any) => ({ ...f, fecha_fin: "" }));
+      }
+      setEditingActivo(nuevoEstado);
       fetchData();
     } catch (err: any) {
       setDeleteBlockedMsg(err.message || "Error al cambiar el acceso");
@@ -178,7 +195,7 @@ export default function RecursosHumanosPage() {
       )}
       <DataTable data={data} columns={columns} title="Trabajadores" loading={loading} searchPlaceholder="Buscar por nombre, perfil, email..." searchKeys={["nombre", "perfil", "email", "telefono"]}
         onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setError(""); setModalOpen(true); } : undefined}
-        onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false }); setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true); } : undefined}
+        onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" }); setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true); } : undefined}
         addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={isAdmin} onDelete={handleDelete} />
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar trabajador" : "Nuevo trabajador"} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -228,6 +245,26 @@ export default function RecursosHumanosPage() {
               </div>
             </div>
           )}
+          {/* Fechas de disponibilidad */}
+          <div className="border-t border-surface-200 pt-4">
+            <p className="text-sm font-medium text-surface-900 mb-3">Disponibilidad en planificador</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-surface-600 mb-1">Fecha inicio *</label>
+                <input type="date" className="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none"
+                  value={form.fecha_inicio}
+                  onChange={(e) => setForm({ ...form, fecha_inicio: e.target.value })} />
+                <p className="text-[10px] text-surface-400 mt-1">Desde cuándo aparece en el planificador</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-surface-600 mb-1">Fecha fin</label>
+                <input type="date" className="w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none"
+                  value={form.fecha_fin}
+                  onChange={(e) => setForm({ ...form, fecha_fin: e.target.value })} />
+                <p className="text-[10px] text-surface-400 mt-1">Vacío = disponible indefinidamente</p>
+              </div>
+            </div>
+          </div>
           {/* Asignable flag */}
           <div className="border-t border-surface-200 pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
