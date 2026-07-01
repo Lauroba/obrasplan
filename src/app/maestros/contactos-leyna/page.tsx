@@ -40,6 +40,8 @@ export default function ContactosLeynaPage() {
   const [relacionFilter, setRelacionFilter] = useState("");
   const [soloDesoi, setSoloDesoi] = useState(false);
   const [soloActivos, setSoloActivos] = useState(true);
+  const [pageSize, setPageSize] = useState<number | "all">(100);
+  const [totalCount, setTotalCount] = useState(0);
 
   // Modal editar/crear
   const [modalOpen, setModalOpen] = useState(false);
@@ -54,15 +56,28 @@ export default function ContactosLeynaPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    // Obtener el count total primero
+    let countQ = (supabase.from("contactos_leyna") as any)
+      .select("id", { count: "exact", head: true });
+    if (soloActivos) countQ = countQ.eq("activo", true);
+    const { count } = await countQ;
+    setTotalCount(count || 0);
+
+    // Luego obtener los datos con el limit adecuado
     let q = (supabase.from("contactos_leyna") as any)
       .select("*")
       .order("empresa", { ascending: true })
       .order("apellidos", { ascending: true });
     if (soloActivos) q = q.eq("activo", true);
+    if (pageSize !== "all") {
+      q = q.limit(pageSize);
+    } else {
+      q = q.limit(10000); // maximo practico
+    }
     const { data: rows } = await q;
     setData(rows || []);
     setLoading(false);
-  }, [soloActivos]);
+  }, [soloActivos, pageSize]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -160,15 +175,29 @@ export default function ContactosLeynaPage() {
             </div>
             <div>
               <h1 className="text-xl font-display font-bold text-surface-900">Contactos LEYNA</h1>
-              <p className="text-sm text-surface-500">{totalFiltrados} contactos</p>
+              <p className="text-sm text-surface-500">
+            {totalFiltrados} mostrados de {totalCount} contactos
+          </p>
             </div>
           </div>
-          {isAdmin && (
-            <button onClick={openNew}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600">
-              <Plus className="w-4 h-4" />Nuevo contacto
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(e.target.value === "all" ? "all" : Number(e.target.value))}
+              className="px-3 py-2 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none">
+              <option value={10}>10</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={500}>500</option>
+              <option value="all">Todos</option>
+            </select>
+            {isAdmin && (
+              <button onClick={openNew}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600">
+                <Plus className="w-4 h-4" />Nuevo contacto
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filtros */}
