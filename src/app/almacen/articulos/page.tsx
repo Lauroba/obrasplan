@@ -71,14 +71,26 @@ export default function ArticulosPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [aR, pR, tR] = await Promise.all([
+    const [aR, pR, tR, scR] = await Promise.all([
       (supabase.from("articulos") as any)
         .select("*, proveedor:proveedores(nombre), tipo_art:tipos_articulo(id,nombre,activo,orden)")
         .eq("activo", true).order("nombre"),
       (supabase.from("proveedores") as any).select("id, nombre").eq("activo", true).order("nombre"),
       (supabase.from("tipos_articulo") as any).select("id, nombre, activo, orden").order("orden").order("nombre"),
+      // Stock total por artículo desde stock_cache (incluye negativos)
+      (supabase.from("stock_cache") as any).select("articulo_id, stock_qty"),
     ]);
-    setData(aR.data || []);
+    // Agrupar stock por articulo_id (sumando todos los almacenes)
+    const stockMap: Record<string, number> = {};
+    for (const row of (scR.data || [])) {
+      stockMap[row.articulo_id] = (stockMap[row.articulo_id] || 0) + Number(row.stock_qty);
+    }
+    // Inyectar stock_total en cada artículo
+    const articulos = (aR.data || []).map((a: any) => ({
+      ...a,
+      stock_total: stockMap[a.id] !== undefined ? stockMap[a.id] : null,
+    }));
+    setData(articulos);
     setProveedores(pR.data || []);
     const allTipos: any[] = tR.data || [];
     const tiposConArt = new Set((aR.data || []).map((a: any) => a.tipo_articulo_id).filter(Boolean));
@@ -119,7 +131,7 @@ export default function ArticulosPage() {
       (supabase.from("stock_cache") as any)
         .select("*, almacen:almacenes(nombre, codigo_almacen, ubicacion)")
         .eq("articulo_id", a.id)
-        .gt("stock_qty", 0)
+        .neq("stock_qty", 0)
         .order("stock_qty", { ascending: false }),
     ]);
     setMovArticulo(mR.data || []);
@@ -139,7 +151,7 @@ export default function ArticulosPage() {
         const { data } = await (supabase.from("stock_cache") as any)
           .select("*, almacen:almacenes(nombre, codigo_almacen, ubicacion)")
           .eq("articulo_id", detalleArticulo.id)
-          .gt("stock_qty", 0)
+          .neq("stock_qty", 0)
           .order("stock_qty", { ascending: false });
         const rows = data || [];
         setStockAlmacenes(rows);
@@ -362,6 +374,7 @@ export default function ArticulosPage() {
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Proveedor</th>
                     <th className="text-center text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Unidad</th>
                     <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stk. mín.</th>
+                    <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-4">Stock</th>
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden md:table-cell">Caducidad</th>
                     {isAdmin && <th className="w-10"></th>}
                   </tr>
@@ -392,6 +405,17 @@ export default function ArticulosPage() {
                       <td className="px-4 py-2.5 text-xs text-surface-600 hidden lg:table-cell">{a.proveedor?.nombre || "—"}</td>
                       <td className="px-4 py-2.5 text-center text-xs text-surface-500">{a.unidad}</td>
                       <td className="px-4 py-2.5 text-right text-xs font-mono">{a.stock_minimo}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        {a.stock_total !== null ? (
+                          <span className={cn("font-mono text-xs font-semibold",
+                            a.stock_total < 0 ? "text-red-600" :
+                            a.stock_total === 0 ? "text-surface-300" : "text-emerald-700")}>
+                            {Number(a.stock_total).toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-surface-300 text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 hidden md:table-cell">
                         {a.caducidad ? (
                           <span className={cn("flex items-center gap-1 text-xs",
