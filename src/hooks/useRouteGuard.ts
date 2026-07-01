@@ -23,6 +23,7 @@ const PATH_TO_SCREEN: Record<string, string> = {
   "/maestros/estados-obra": "maestros_estados",
   "/maestros/tipos-trabajo": "maestros_tipos_trabajo",
   "/maestros/tipos-obra": "maestros_tipos_obra",
+  "/maestros/contactos-leyna": "maestros_contactos_leyna",
   "/logs": "logs",
   "/configuracion": "configuracion",
 };

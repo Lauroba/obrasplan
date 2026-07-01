@@ -92,7 +92,7 @@ export function usePermissions() {
       "apps_georadar",
       "almacen_articulos", "almacen_tipos_articulo", "almacen_almacenes", "almacen_proveedores", "almacen_movimientos",
       "maestros_rrhh", "maestros_vehiculos",
-      "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra",
+      "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra", "maestros_contactos_leyna",
       "logs", "configuracion"]);
 
     const screens = new Set<string>();
