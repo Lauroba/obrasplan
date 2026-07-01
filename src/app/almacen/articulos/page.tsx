@@ -9,6 +9,7 @@ import {
   Package, Loader2, Search, Plus, Pencil, Upload, Download,
   AlertTriangle, Calendar, Wrench, History, ClipboardList,
   ArrowLeftRight, SlidersHorizontal, ArrowDownToLine, ArrowUpFromLine,
+  Warehouse, RefreshCw, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
@@ -56,7 +57,10 @@ export default function ArticulosPage() {
   // Modal detalle (click en fila)
   const [detalleOpen, setDetalleOpen] = useState(false);
   const [detalleArticulo, setDetalleArticulo] = useState<any>(null);
-  const [detalleTab, setDetalleTab] = useState<"info" | "movimientos" | "auditoria">("info");
+  const [detalleTab, setDetalleTab] = useState<"info" | "movimientos" | "auditoria" | "stock_almacenes">("info");
+  const [stockAlmacenes, setStockAlmacenes] = useState<any[]>([]);
+  const [stockTotal, setStockTotal] = useState<number | null>(null);
+  const [recalculando, setRecalculando] = useState(false);
   const [movArticulo, setMovArticulo] = useState<any[]>([]);
   const [audArticulo, setAudArticulo] = useState<any[]>([]);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
@@ -100,7 +104,7 @@ export default function ArticulosPage() {
     setDetalleTab("info");
     setDetalleOpen(true);
     setLoadingDetalle(true);
-    const [mR, audR] = await Promise.all([
+    const [mR, audR, stockR] = await Promise.all([
       (supabase.from("movimientos_almacen") as any)
         .select("*, almacen_origen:almacenes!almacen_origen_id(nombre), almacen_destino:almacenes!almacen_destino_id(nombre), user:users(nombre)")
         .eq("articulo_id", a.id)
@@ -112,10 +116,40 @@ export default function ArticulosPage() {
         .eq("entidad_id", a.id)
         .order("created_at", { ascending: false })
         .limit(50),
+      (supabase.from("stock_cache") as any)
+        .select("*, almacen:almacenes(nombre, codigo_almacen, ubicacion)")
+        .eq("articulo_id", a.id)
+        .gt("stock_qty", 0)
+        .order("stock_qty", { ascending: false }),
     ]);
     setMovArticulo(mR.data || []);
     setAudArticulo(audR.data || []);
+    const stockRows = stockR.data || [];
+    setStockAlmacenes(stockRows);
+    setStockTotal(stockRows.reduce((acc: number, r: any) => acc + Number(r.stock_qty), 0));
     setLoadingDetalle(false);
+  };
+
+  const handleRecalcular = async (soloEsteArticulo: boolean) => {
+    setRecalculando(true);
+    try {
+      if (soloEsteArticulo && detalleArticulo) {
+        await (supabase.rpc as any)("recalcular_stock_articulo", { p_articulo_id: detalleArticulo.id });
+        // Recargar stock
+        const { data } = await (supabase.from("stock_cache") as any)
+          .select("*, almacen:almacenes(nombre, codigo_almacen, ubicacion)")
+          .eq("articulo_id", detalleArticulo.id)
+          .gt("stock_qty", 0)
+          .order("stock_qty", { ascending: false });
+        const rows = data || [];
+        setStockAlmacenes(rows);
+        setStockTotal(rows.reduce((acc: number, r: any) => acc + Number(r.stock_qty), 0));
+      } else {
+        await (supabase.rpc as any)("recalcular_stock_todos");
+      }
+    } catch (err: any) {
+      alert("Error al recalcular: " + (err?.message || err));
+    } finally { setRecalculando(false); }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -400,6 +434,7 @@ export default function ArticulosPage() {
             <div className="flex gap-1 mb-4 bg-surface-100 rounded-lg p-1 w-fit">
               {([
                 { id: "info", label: "Información", icon: Package },
+                { id: "stock_almacenes", label: "Stock almacenes", icon: Warehouse },
                 { id: "movimientos", label: "Movimientos", icon: ArrowLeftRight },
                 { id: "auditoria", label: "Auditoría", icon: ClipboardList },
               ] as const).map((t) => (
@@ -442,6 +477,20 @@ export default function ArticulosPage() {
                         <div><p className="text-[10px] text-surface-400 uppercase font-semibold mb-0.5">Proveedor</p><p className="text-xs">{detalleArticulo.proveedor?.nombre || "—"}</p></div>
                         <div><p className="text-[10px] text-surface-400 uppercase font-semibold mb-0.5">Unidad</p><p className="text-xs">{detalleArticulo.unidad}</p></div>
                         <div><p className="text-[10px] text-surface-400 uppercase font-semibold mb-0.5">Stock mínimo</p><p className="font-mono text-xs">{detalleArticulo.stock_minimo}</p></div>
+                        <div>
+                          <p className="text-[10px] text-surface-400 uppercase font-semibold mb-0.5 flex items-center gap-1"><TrendingUp className="w-3 h-3" />Stock total empresa</p>
+                          <div className="flex items-center gap-2">
+                            {stockTotal !== null ? (
+                              <span className={cn("font-mono text-sm font-bold", stockTotal < 0 ? "text-red-600" : stockTotal === 0 ? "text-surface-400" : "text-emerald-700")}>
+                                {Number(stockTotal).toFixed(2)} {detalleArticulo.unidad}
+                              </span>
+                            ) : <span className="text-surface-400 text-xs">Sin movimientos</span>}
+                            <button onClick={() => handleRecalcular(true)} disabled={recalculando} title="Recalcular stock"
+                              className="p-1 rounded text-surface-400 hover:text-brand-600 hover:bg-brand-50 disabled:opacity-50">
+                              <RefreshCw className={cn("w-3.5 h-3.5", recalculando && "animate-spin")} />
+                            </button>
+                          </div>
+                        </div>
                         <div><p className="text-[10px] text-surface-400 uppercase font-semibold mb-0.5">Caducidad</p>
                           <p className={cn("text-xs", isExpired(detalleArticulo.caducidad) ? "text-red-600 font-semibold" : isExpiringSoon(detalleArticulo.caducidad) ? "text-amber-600" : "")}>
                             {detalleArticulo.caducidad ? new Date(detalleArticulo.caducidad).toLocaleDateString("es-ES") : "—"}
@@ -465,6 +514,65 @@ export default function ArticulosPage() {
                           className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600">
                           <Pencil className="w-3.5 h-3.5" />Editar artículo
                         </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab: Stock por almacén */}
+                {detalleTab === "stock_almacenes" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-surface-500">
+                        Stock en {stockAlmacenes.length} almacén{stockAlmacenes.length !== 1 ? "es" : ""} ·
+                        Total: <span className="font-bold font-mono">{stockTotal !== null ? Number(stockTotal).toFixed(2) : "—"} {detalleArticulo?.unidad}</span>
+                      </p>
+                      <button onClick={() => handleRecalcular(true)} disabled={recalculando}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 disabled:opacity-60">
+                        <RefreshCw className={cn("w-3.5 h-3.5", recalculando && "animate-spin")} />
+                        Recalcular
+                      </button>
+                    </div>
+                    {stockAlmacenes.length === 0 ? (
+                      <div className="text-center py-8 text-sm text-surface-400">
+                        <Warehouse className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        Este artículo no tiene stock en ningún almacén
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-surface-100 bg-surface-50">
+                              <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-3">Almacén</th>
+                              <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-3 hidden sm:table-cell">Ubicación</th>
+                              <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-3">Stock</th>
+                              <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-3 hidden md:table-cell">Actualizado</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stockAlmacenes.map((s: any) => (
+                              <tr key={s.almacen_id} className="border-b border-surface-50 hover:bg-surface-50/50">
+                                <td className="px-3 py-2.5">
+                                  <div className="font-medium text-surface-900 text-xs">{s.almacen?.nombre || "—"}</div>
+                                  <div className="text-[10px] text-surface-400 font-mono">{s.almacen?.codigo_almacen}</div>
+                                </td>
+                                <td className="px-3 py-2.5 text-xs text-surface-500 hidden sm:table-cell">
+                                  {s.almacen?.ubicacion || "—"}
+                                </td>
+                                <td className="px-3 py-2.5 text-right">
+                                  <span className={cn("font-mono text-sm font-bold",
+                                    Number(s.stock_qty) < 0 ? "text-red-600" : "text-surface-900")}>
+                                    {Number(s.stock_qty).toFixed(2)}
+                                  </span>
+                                  <span className="text-[10px] text-surface-400 ml-1">{detalleArticulo?.unidad}</span>
+                                </td>
+                                <td className="px-3 py-2.5 text-[10px] text-surface-400 hidden md:table-cell">
+                                  {new Date(s.updated_at).toLocaleDateString("es-ES")}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>

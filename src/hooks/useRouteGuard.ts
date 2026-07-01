@@ -18,12 +18,12 @@ const PATH_TO_SCREEN: Record<string, string> = {
   "/almacen/almacenes": "almacen_almacenes",
   "/almacen/proveedores": "almacen_proveedores",
   "/almacen/movimientos": "almacen_movimientos",
+  "/almacen/etiquetas": "almacen_etiquetas",
   "/maestros/vehiculos": "maestros_vehiculos",
   "/maestros/clientes": "maestros_clientes",
   "/maestros/estados-obra": "maestros_estados",
   "/maestros/tipos-trabajo": "maestros_tipos_trabajo",
   "/maestros/tipos-obra": "maestros_tipos_obra",
-  "/maestros/contactos-leyna": "maestros_contactos_leyna",
   "/logs": "logs",
   "/configuracion": "configuracion",
 };
