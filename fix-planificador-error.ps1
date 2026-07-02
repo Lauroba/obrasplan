@@ -1,3 +1,18 @@
+﻿#Requires -Version 5.1
+# fix-planificador-error-visible.ps1
+# Anade captura de errores visible en el planificador.
+# Al intentar asignar (drag o boton +), si falla muestra un banner rojo
+# en la parte inferior con el mensaje exacto de error de Supabase.
+# Esto permite diagnosticar el problema real en produccion.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo planificacion/page.tsx" -ForegroundColor Cyan
+
+$dst = "src\app\planificacion\page.tsx"
+$content = @'
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, memo } from "react";
@@ -925,3 +940,15 @@ export default function PlanificacionPage() {
     </AppLayout>
   );
 }
+'@
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$ok = Select-String -Path "src\app\planificacion\page.tsx" -Pattern "asignError" -Quiet
+if ($ok) { Write-Host "    OK: captura de error visible anadida" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+Write-Host ""
+Write-Host '  git add src\app\planificacion\page.tsx'
+Write-Host '  git commit -m "fix: mostrar error real al asignar en planificador"'
+Write-Host '  git push'
