@@ -328,7 +328,7 @@ export default function PlanificacionPage() {
     setLoading(true);
     const [oR, aR, hR, vR, eR] = await Promise.all([
       supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").order("orden_gantt"),
-      supabase.from("asignaciones").select("*"),
+      supabase.from("asignaciones").select("*").limit(10000),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("orden_planificacion" as any, { ascending: true }).order("nombre"),
       supabase.from("vehiculos").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
