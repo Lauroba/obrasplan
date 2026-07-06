@@ -27,6 +27,8 @@ const PANTALLAS = [
   { id: "maestros_estados", label: "Estados obra" },
   { id: "maestros_tipos_trabajo", label: "Tipos trabajo" },
   { id: "maestros_tipos_obra", label: "Tipos de obra" },
+  { id: "maestros_contactos_leyna", label: "Contactos LEYNA" },
+  { id: "almacen_etiquetas", label: "Almacén - Etiquetas" },
   { id: "apps_georadar", label: "Georadar" },
   { id: "logs", label: "Logs" },
   { id: "configuracion", label: "Configuración" },
