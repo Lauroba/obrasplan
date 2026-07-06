@@ -328,7 +328,16 @@ export default function PlanificacionPage() {
     setLoading(true);
     const [oR, aR, hR, vR, eR] = await Promise.all([
       supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").order("orden_gantt"),
-      supabase.from("asignaciones").select("*").limit(10000),
+      // Solo cargar asignaciones del rango visible: 4 semanas atras y 8 adelante
+      // Escala sin limites numericos arbitrarios
+      (() => {
+        const rs = new Date(startDate); rs.setDate(rs.getDate() - 28);
+        const re = new Date(startDate); re.setDate(re.getDate() + 56);
+        const fromDs = `${rs.getFullYear()}-${String(rs.getMonth()+1).padStart(2,"0")}-${String(rs.getDate()).padStart(2,"0")}`;
+        const toDs   = `${re.getFullYear()}-${String(re.getMonth()+1).padStart(2,"0")}-${String(re.getDate()).padStart(2,"0")}`;
+        return supabase.from("asignaciones").select("*")
+          .gte("fecha_fin", fromDs).lte("fecha_inicio", toDs).limit(5000);
+      })(),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("orden_planificacion" as any, { ascending: true }).order("nombre"),
       supabase.from("vehiculos").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
