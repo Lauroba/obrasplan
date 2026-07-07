@@ -1,3 +1,19 @@
+﻿#Requires -Version 5.1
+# fix-logs-legibles.ps1
+# 1. Trigger: descripciones legibles (nombre del recurso en asignaciones,
+#    campo modificado en obras, titulo en checklists, descripcion en tareas)
+# 2. Logs UI: muestra valor anterior y nuevo campo a campo con tachado rojo
+#    y texto verde para los cambios
+# IMPORTANTE: ejecutar 043b_trigger_logs_legibles.sql en Supabase primero
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo archivos" -ForegroundColor Cyan
+
+$dst = "src\app\obras\[id]\page.tsx"
+$content = @'
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -544,3 +560,17 @@ export default function ObraDetallePage() {
     </AppLayout>
   );
 }
+'@
+$dir = Split-Path -Parent (Join-Path $RepoPath $dst)
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$ok = Select-String -LiteralPath (Join-Path $RepoPath "src\app\obras\[id]\page.tsx") -Pattern "valor_anterior" -Quiet
+if ($ok) { Write-Host "    OK: UI de logs con cambios legibles" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+Write-Host ""
+Write-Host '  git add -A'
+Write-Host '  git commit -m "feat: logs de obra con descripciones legibles y cambios campo a campo"'
+Write-Host '  git push'
