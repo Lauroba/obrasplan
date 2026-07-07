@@ -59,8 +59,9 @@ export async function POST(req: NextRequest) {
         nombre, perfil: perfil || null, telefono: telefono || null, email, foto_url: foto_url || null,
       }).eq("id", recurso_id);
 
-      // Find linked user
-      const { data: userRow } = await supabase.from("users").select("id").eq("recurso_id", recurso_id).single();
+      // Find linked user — tolerante a duplicados (usa el más reciente)
+      const { data: userRows } = await supabase.from("users").select("id, created_at").eq("recurso_id", recurso_id).order("created_at", { ascending: false }).limit(5);
+      const userRow = userRows && userRows.length > 0 ? userRows[0] : null;
       if (userRow) {
         // Actualizar perfil (role + rol_id siempre juntos)
         await (supabase.from("users") as any).update({
