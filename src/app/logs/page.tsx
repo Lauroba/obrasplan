@@ -8,7 +8,8 @@ import { useAuthStore } from "@/hooks/useAuth";
 import type { AuditLog } from "@/lib/types/database";
 import {
   ScrollText, Loader2, ChevronLeft, ChevronRight, Search, X,
-  Plus, Pencil, Trash2, LogIn, Eye, ArrowRight, AlertTriangle, CheckCircle2
+  Plus, Pencil, Trash2, LogIn, Eye, ArrowRight, AlertTriangle, CheckCircle2,
+  Check, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -74,10 +75,12 @@ export default function LogsPage() {
   // Filters
   const [filterUser, setFilterUser] = useState("");
   const [filterAccion, setFilterAccion] = useState("");
-  const [filterEntidad, setFilterEntidad] = useState("");
+  const [filterEntidades, setFilterEntidades] = useState<string[]>([]); // multi-selección
   const [filterResultado, setFilterResultado] = useState("");
   const [filterDesde, setFilterDesde] = useState("");
   const [filterHasta, setFilterHasta] = useState("");
+  const [entidadesDisponibles, setEntidadesDisponibles] = useState<string[]>([]);
+  const [entidadDropOpen, setEntidadDropOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -89,7 +92,7 @@ export default function LogsPage() {
 
     if (filterUser) query = query.eq("user_id", filterUser);
     if (filterAccion) query = query.eq("accion", filterAccion);
-    if (filterEntidad) query = query.eq("entidad", filterEntidad);
+    if (filterEntidades.length > 0) query = (query as any).in("entidad", filterEntidades);
     if (filterResultado) query = query.eq("resultado", filterResultado);
     if (filterDesde) query = query.gte("created_at", filterDesde + "T00:00:00");
     if (filterHasta) query = query.lte("created_at", filterHasta + "T23:59:59");
@@ -98,19 +101,37 @@ export default function LogsPage() {
     setLogs(data || []);
     setTotal(count || 0);
 
+    // Fetch entidades disponibles dinámicamente desde audit_log
+    const { data: entData } = await (supabase.from("audit_log") as any)
+      .select("entidad").limit(1000);
+    if (entData) {
+      const uniq = Array.from(new Set((entData as any[]).map((r: any) => r.entidad).filter(Boolean))).sort() as string[];
+      setEntidadesDisponibles(uniq as string[]);
+    }
     // Fetch users for filter dropdown
     const { data: usersData } = await supabase.from("users").select("id, nombre").order("nombre");
     setUsers(usersData || []);
 
     setLoading(false);
-  }, [page, filterUser, filterAccion, filterEntidad, filterResultado, filterDesde, filterHasta]);
+  }, [page, filterUser, filterAccion, filterEntidades, filterResultado, filterDesde, filterHasta]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(0); }, [filterUser, filterAccion, filterEntidad, filterResultado, filterDesde, filterHasta]);
+  useEffect(() => { setPage(0); }, [filterUser, filterAccion, filterEntidades, filterResultado, filterDesde, filterHasta]);
 
-  const hasFilters = filterUser || filterAccion || filterEntidad || filterResultado || filterDesde || filterHasta;
+  const hasFilters = filterUser || filterAccion || filterEntidades.length > 0 || filterResultado || filterDesde || filterHasta;
+
+  // Cerrar el dropdown de entidades al hacer clic fuera
+  useEffect(() => {
+    if (!entidadDropOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-entidad-drop]")) setEntidadDropOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [entidadDropOpen]);
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   // Get a readable summary of what changed.
@@ -213,11 +234,46 @@ export default function LogsPage() {
               <option value="">Todas las acciones</option>
               {Object.entries(ACCION_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
-            <select value={filterEntidad} onChange={(e) => setFilterEntidad(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
-              <option value="">Todas las entidades</option>
-              {Object.entries(ENTIDAD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+            {/* Multi-selección de entidades */}
+            <div className="relative" data-entidad-drop>
+              <button
+                onClick={() => setEntidadDropOpen(!entidadDropOpen)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg hover:bg-surface-100 focus:outline-none"
+              >
+                {filterEntidades.length === 0
+                  ? "Todas las entidades"
+                  : filterEntidades.length === 1
+                  ? (ENTIDAD_LABELS[filterEntidades[0]] || filterEntidades[0])
+                  : `${filterEntidades.length} entidades`}
+                <ChevronDown className="w-3.5 h-3.5 text-surface-400" />
+              </button>
+              {entidadDropOpen && (
+                <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-surface-200 rounded-xl shadow-xl min-w-56 max-h-72 overflow-y-auto">
+                  <div className="p-2 border-b border-surface-100 flex justify-between items-center">
+                    <span className="text-xs font-semibold text-surface-600">Filtrar por entidad</span>
+                    <button onClick={() => { setFilterEntidades([]); setEntidadDropOpen(false); }}
+                      className="text-[10px] text-brand-600 hover:underline">Limpiar</button>
+                  </div>
+                  {entidadesDisponibles.map((ent) => (
+                    <label key={ent}
+                      className="flex items-center gap-2.5 px-3 py-2 hover:bg-surface-50 cursor-pointer"
+                      onClick={() => {
+                        setFilterEntidades(prev =>
+                          prev.includes(ent) ? prev.filter(e => e !== ent) : [...prev, ent]
+                        );
+                      }}>
+                      <div className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0",
+                        filterEntidades.includes(ent) ? "bg-brand-500 border-brand-500" : "border-surface-300")}>
+                        {filterEntidades.includes(ent) && <Check className="w-2.5 h-2.5 text-white" />}
+                      </div>
+                      <span className="text-xs text-surface-700">
+                        {ENTIDAD_LABELS[ent] || ent}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             <select value={filterResultado} onChange={(e) => setFilterResultado(e.target.value)}
               className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20">
               <option value="">Éxito y error</option>
@@ -231,7 +287,7 @@ export default function LogsPage() {
                 className="px-3 py-1.5 text-sm bg-surface-50 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
             </div>
             {hasFilters && (
-              <button onClick={() => { setFilterUser(""); setFilterAccion(""); setFilterEntidad(""); setFilterResultado(""); setFilterDesde(""); setFilterHasta(""); }}
+              <button onClick={() => { setFilterUser(""); setFilterAccion(""); setFilterEntidades([]); setFilterResultado(""); setFilterDesde(""); setFilterHasta(""); setEntidadDropOpen(false); }}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
                 <X className="w-3 h-3" /> Limpiar
               </button>
