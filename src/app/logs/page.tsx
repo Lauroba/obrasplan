@@ -110,8 +110,16 @@ export default function LogsPage() {
   useEffect(() => {
     const loadStatic = async () => {
       // Usuarios
-      const { data: usersData } = await supabase.from("users").select("id, nombre").order("nombre");
-      if (usersData) setUsers(usersData);
+      const { data: usersData } = await supabase.from("users").select("id, nombre, email, activo").eq("activo", true).order("nombre");
+      if (usersData) {
+        // Deduplicar por nombre (puede haber duplicados de la migracion de usuarios)
+        const seen = new Set<string>();
+        const uniqUsers = (usersData as any[]).filter(u => {
+          if (seen.has(u.nombre)) return false;
+          seen.add(u.nombre); return true;
+        });
+        setUsers(uniqUsers);
+      }
 
       // Entidades: usar RPC get_audit_entidades() para DISTINCT real
       // Si la RPC no existe, fallback a query directa con limit alto
