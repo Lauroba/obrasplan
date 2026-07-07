@@ -52,7 +52,7 @@ export default function DashboardPage() {
         supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
         supabase.from("obras").select("*, estado_custom:estados_obra(*), cliente:clientes(nombre)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
-        supabase.from("asignaciones").select("*"),
+        supabase.from("asignaciones").select("*").limit(10000),
         supabase.from("recursos_humanos").select("id, nombre").eq("activo", true),
         Promise.resolve({ data: [] }),  // maquinaria eliminada del planificador
         supabase.from("vehiculos").select("id, nombre"),
