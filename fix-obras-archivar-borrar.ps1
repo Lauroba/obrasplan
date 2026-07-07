@@ -1,3 +1,18 @@
+﻿#Requires -Version 5.1
+# fix-obras-archivar-borrar.ps1
+# Anade manejo de errores en handleArchive y handleDelete de obras.
+# Antes: si el UPDATE/DELETE fallaba silenciosamente, no se veia ningun error.
+# Ahora: muestra el error exacto de Supabase en un alert para diagnosticar.
+# EJECUTAR TAMBIEN: fix_rls_obras.sql en Supabase para corregir la RLS.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Escribiendo obras/[id]/page.tsx" -ForegroundColor Cyan
+
+$dst = "src\app\obras\[id]\page.tsx"
+$content = @'
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -547,3 +562,19 @@ export default function ObraDetallePage() {
     </AppLayout>
   );
 }
+'@
+$dir = Split-Path -Parent (Join-Path $RepoPath $dst)
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+Write-Host "    Escrito: $dst" -ForegroundColor Green
+
+$ok = Select-String -LiteralPath (Join-Path $RepoPath "src\app\obras\[id]\page.tsx") -Pattern "Error al eliminar la obra" -Quiet
+if ($ok) { Write-Host "    OK: manejo de errores anadido" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+Write-Host ""
+Write-Host "RECORDATORIO: ejecutar fix_rls_obras.sql en Supabase" -ForegroundColor Yellow
+Write-Host ""
+Write-Host '  git add -A'
+Write-Host '  git commit -m "fix: error handling en archivar y borrar obra"'
+Write-Host '  git push'
