@@ -101,24 +101,39 @@ export default function LogsPage() {
     setLogs(data || []);
     setTotal(count || 0);
 
-    // Fetch entidades disponibles — sin límite, ordenadas
-    const { data: entData } = await (supabase.from("audit_log") as any)
-      .select("entidad")
-      .not("entidad", "is", null)
-      .order("entidad")
-      .limit(5000);
-    if (entData) {
-      const uniq = Array.from(new Set((entData as any[]).map((r: any) => r.entidad).filter(Boolean))).sort() as string[];
-      setEntidadesDisponibles(uniq);
-    }
-    // Fetch users for filter dropdown
-    const { data: usersData } = await supabase.from("users").select("id, nombre").order("nombre");
-    setUsers(usersData || []);
-
     setLoading(false);
   }, [page, filterUser, filterAccion, filterEntidades, filterResultado, filterDesde, filterHasta]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Cargar entidades disponibles y usuarios UNA SOLA VEZ al montar
+  useEffect(() => {
+    const loadStatic = async () => {
+      // Usuarios
+      const { data: usersData } = await supabase.from("users").select("id, nombre").order("nombre");
+      if (usersData) setUsers(usersData);
+
+      // Entidades: usar RPC get_audit_entidades() para DISTINCT real
+      // Si la RPC no existe, fallback a query directa con limit alto
+      try {
+        const { data: entData, error } = await (supabase.rpc as any)("get_audit_entidades");
+        if (!error && entData) {
+          setEntidadesDisponibles((entData as any[]).map((r: any) => r.entidad).filter(Boolean));
+        } else {
+          throw error;
+        }
+      } catch {
+        // Fallback: traer todos los logs y deduplicar en cliente
+        const { data: entData2 } = await (supabase.from("audit_log") as any)
+          .select("entidad").not("entidad", "is", null).limit(10000);
+        if (entData2) {
+          const uniq = Array.from(new Set((entData2 as any[]).map((r: any) => r.entidad).filter(Boolean))).sort() as string[];
+          setEntidadesDisponibles(uniq);
+        }
+      }
+    };
+    loadStatic();
+  }, []);
 
   // Reset page when filters change
   useEffect(() => { setPage(0); }, [filterUser, filterAccion, filterEntidades, filterResultado, filterDesde, filterHasta]);
