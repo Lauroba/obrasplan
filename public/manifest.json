@@ -2,13 +2,11 @@
   "name": "ObrasPlan — Loynek",
   "short_name": "ObrasPlan",
   "description": "Planificación y gestión de obras — Loynek Soluciones Técnicas",
-  "start_url": "/dashboard",
-  "scope": "/",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#DC2626",
   "orientation": "any",
-  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.png",
@@ -34,5 +32,7 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "scope": "/",
+  "prefer_related_applications": false
 }
