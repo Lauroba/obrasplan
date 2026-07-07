@@ -10,7 +10,7 @@ import { useAuthStore } from "@/hooks/useAuth";
 import type { Obra, Asignacion, RecursoHumano, Maquinaria, Tarea, TipoTarea, EstadoObra, Documento, ParteDiario } from "@/lib/types/database";
 import {
   Building2, ArrowLeft, MapPin, Users, Wrench, Truck, ClipboardList, FileText,
-  Loader2, Plus, Trash2, CheckCircle2, Clock, ListTodo, Upload,
+  Loader2, Plus, Trash2, CheckCircle2, Clock, ListTodo, Upload, History,
   File, Image as ImageIcon, Save, MessageSquare, ExternalLink, Pencil,
   FileSignature, Archive, Eye, AlertTriangle, Download
 } from "lucide-react";
@@ -18,7 +18,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 import ChecklistPanel from "@/components/obras/ChecklistPanel";
 
-type Tab = "general" | "recursos" | "tareas" | "partes" | "documentos" | "checklists";
+type Tab = "general" | "recursos" | "tareas" | "partes" | "documentos" | "checklists" | "logs";
 
 export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
@@ -42,6 +42,8 @@ export default function ObraDetallePage() {
   const [obraTipos, setObraTipos] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("general");
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
   const [observaciones, setObservaciones] = useState("");
   const [obsSaving, setObsSaving] = useState(false);
   const [obsChanged, setObsChanged] = useState(false);
@@ -55,6 +57,18 @@ export default function ObraDetallePage() {
   const [editTaskForm, setEditTaskForm] = useState({ descripcion: "", tipo_tarea_id: "", prioridad: "media" as any, fecha_limite: "", asignado_a: "" });
   const [editTaskSaving, setEditTaskSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  const fetchLogs = useCallback(async () => {
+    if (!id) return;
+    setLoadingLogs(true);
+    const { data } = await (supabase.from("audit_log") as any)
+      .select("id, accion, entidad, modulo, descripcion, user_rol, created_at, user:users(nombre)")
+      .eq("obra_id", id)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    setLogs(data || []);
+    setLoadingLogs(false);
+  }, [id]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -136,6 +150,9 @@ export default function ObraDetallePage() {
   if (loading) return <AppLayout><div className="flex justify-center py-20"><Loader2 className="w-8 h-8 text-brand-500 animate-spin" /></div></AppLayout>;
   if (!obra) return <AppLayout><div className="text-center py-20"><p className="text-surface-500">Obra no encontrada</p></div></AppLayout>;
 
+  // Cargar logs al abrir la pestaña
+  useEffect(() => { if (tab === "logs") fetchLogs(); }, [tab, fetchLogs]);
+
   const tabs: { id: Tab; label: string; icon: typeof Building2; count?: number }[] = [
     { id: "general", label: "General", icon: Building2 },
     { id: "recursos", label: "Recursos", icon: Users, count: asignaciones.length },
@@ -143,6 +160,7 @@ export default function ObraDetallePage() {
     { id: "partes", label: "Partes", icon: ClipboardList, count: partes.length },
     { id: "documentos", label: "Documentos", icon: FileText, count: documentos.length },
     { id: "checklists", label: "Checklists", icon: CheckCircle2 },
+    { id: "logs", label: "Logs", icon: History },
   ];
   const humanos = asignaciones.filter((a) => a.recurso_tipo === "humano");
   const maquinas = asignaciones.filter((a) => a.recurso_tipo === "maquinaria");
@@ -422,6 +440,46 @@ export default function ObraDetallePage() {
             )}
           </div>
         )}
+
+        {tab === "logs" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-surface-500">Historial de acciones de esta obra</p>
+                    <button onClick={fetchLogs} className="text-xs text-brand-600 hover:underline flex items-center gap-1">
+                      <History className="w-3 h-3" />Actualizar
+                    </button>
+                  </div>
+                  {loadingLogs ? (
+                    <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 text-brand-500 animate-spin" /></div>
+                  ) : logs.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-surface-400">Sin registros de actividad para esta obra</div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+                      {logs.map((log: any) => (
+                        <div key={log.id} className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-surface-50 border border-surface-100">
+                          <div className="shrink-0 mt-0.5">
+                            <span className={cn("badge text-[9px]",
+                              log.accion === "crear"    ? "bg-emerald-100 text-emerald-700" :
+                              log.accion === "eliminar" ? "bg-red-100 text-red-700" :
+                              "bg-amber-100 text-amber-700")}>
+                              {log.accion}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-surface-800">{log.descripcion || `${log.accion} en ${log.entidad}`}</p>
+                            <p className="text-[10px] text-surface-400 mt-0.5">
+                              {new Date(log.created_at).toLocaleString("es-ES")}
+                              {log.user?.nombre && ` · ${log.user.nombre}`}
+                              {log.user_rol && ` · ${log.user_rol}`}
+                            </p>
+                          </div>
+                          {log.modulo && <span className="text-[9px] text-surface-400 shrink-0 font-mono">{log.modulo}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
         {tab === "checklists" && (
           <ChecklistPanel obraId={id} rrhh={rrhh.map((r) => ({ id: r.id, nombre: r.nombre }))} />
