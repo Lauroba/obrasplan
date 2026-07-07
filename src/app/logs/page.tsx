@@ -101,12 +101,15 @@ export default function LogsPage() {
     setLogs(data || []);
     setTotal(count || 0);
 
-    // Fetch entidades disponibles dinámicamente desde audit_log
+    // Fetch entidades disponibles — sin límite, ordenadas
     const { data: entData } = await (supabase.from("audit_log") as any)
-      .select("entidad").limit(1000);
+      .select("entidad")
+      .not("entidad", "is", null)
+      .order("entidad")
+      .limit(5000);
     if (entData) {
       const uniq = Array.from(new Set((entData as any[]).map((r: any) => r.entidad).filter(Boolean))).sort() as string[];
-      setEntidadesDisponibles(uniq as string[]);
+      setEntidadesDisponibles(uniq);
     }
     // Fetch users for filter dropdown
     const { data: usersData } = await supabase.from("users").select("id, nombre").order("nombre");
@@ -409,7 +412,18 @@ export default function LogsPage() {
             {selectedLog.accion === "editar" && (
               <div>
                 <h3 className="text-sm font-semibold text-surface-900 mb-2">Cambios realizados</h3>
-                {renderDiff(selectedLog.valor_anterior, selectedLog.valor_nuevo)}
+                {selectedLog.valor_anterior || selectedLog.valor_nuevo
+                  ? renderDiff(selectedLog.valor_anterior, selectedLog.valor_nuevo)
+                  : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <p className="text-xs text-amber-700">
+                        No hay datos de cambio disponibles para este registro.
+                        Los logs anteriores a la migración 043b no guardan el detalle de campos modificados.
+                        Los nuevos cambios sí quedarán registrados con el valor anterior y nuevo.
+                      </p>
+                    </div>
+                  )
+                }
               </div>
             )}
 
