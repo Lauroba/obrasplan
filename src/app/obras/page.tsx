@@ -13,10 +13,11 @@ import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario"
 
 export default function ObrasPage() {
   const { user } = useAuthStore();
-  const { isAdmin, canDo } = usePermissions();
+  const { isAdmin, canDo, loaded: permisosLoaded } = usePermissions();
   // Solo filtrar por asignaciones si el usuario es Operario puro
   // (sin permiso "crear" ni "editar" en obras = solo puede ver las suyas)
-  const esSoloOperario = !isAdmin && !canDo("obras", "crear") && !canDo("obras", "editar");
+  // Guard: mientras los permisos no han cargado, asumir que ve todas las obras
+  const esSoloOperario = permisosLoaded && !isAdmin && !canDo("obras", "crear") && !canDo("obras", "editar");
   const [data, setData] = useState<Obra[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("");
@@ -44,9 +45,12 @@ export default function ObrasPage() {
     const { data: est } = await supabase.from("estados_obra").select("*").eq("activo", true).order("nombre");
     setEstados(est || []);
     setLoading(false);
-  }, [user]);
+  }, [user, esSoloOperario, permisosLoaded]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Esperar a que los permisos carguen antes de hacer el fetch
+  useEffect(() => {
+    if (permisosLoaded) fetchData();
+  }, [fetchData, permisosLoaded]);
 
   const columns: Column<Obra>[] = [
     {
