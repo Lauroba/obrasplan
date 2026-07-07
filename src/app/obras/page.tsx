@@ -5,6 +5,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import DataTable, { Column } from "@/components/shared/DataTable";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Obra, EstadoObra } from "@/lib/types/database";
 import { Building2, Plus } from "lucide-react";
 import Link from "next/link";
@@ -12,6 +13,10 @@ import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario"
 
 export default function ObrasPage() {
   const { user } = useAuthStore();
+  const { isAdmin, canDo } = usePermissions();
+  // Solo filtrar por asignaciones si el usuario es Operario puro
+  // (sin permiso "crear" ni "editar" en obras = solo puede ver las suyas)
+  const esSoloOperario = !isAdmin && !canDo("obras", "crear") && !canDo("obras", "editar");
   const [data, setData] = useState<Obra[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("");
@@ -26,7 +31,8 @@ export default function ObrasPage() {
       .order("fecha_inicio", { ascending: false });
 
     let visibleRows = (rows as Obra[]) || [];
-    if (user?.role !== "admin" && user?.recurso_id) {
+    // Solo filtrar obras si es operario puro (sin permisos de crear/editar obras)
+    if (esSoloOperario && user?.recurso_id) {
       const [asigR, partesR] = await Promise.all([
         supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", user.recurso_id),
         supabase.from("partes_diarios").select("obra_id, fecha, estado").eq("created_by", user.id),
