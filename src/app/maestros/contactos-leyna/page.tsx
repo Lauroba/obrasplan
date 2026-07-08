@@ -4,6 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   Users2, Loader2, Search, Plus, Pencil, Phone, Mail,
   Building2, Filter, X, CheckCircle2,
@@ -32,7 +33,10 @@ const emptyForm = {
 export default function ContactosLeynaPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_contactos_leyna", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_contactos_leyna", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_contactos_leyna", "eliminar");
 
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,7 +195,7 @@ export default function ContactosLeynaPage() {
               <option value={500}>500</option>
               <option value="all">Todos</option>
             </select>
-            {isAdmin && (
+            {puedeCrear && (
               <button onClick={openNew}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600">
                 <Plus className="w-4 h-4" />Nuevo contacto
@@ -249,7 +253,7 @@ export default function ContactosLeynaPage() {
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Teléfonos</th>
                     <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden lg:table-cell">Email</th>
                     <th className="text-center text-[10px] font-semibold text-surface-400 uppercase py-2 px-4 hidden sm:table-cell">DESOI</th>
-                    {isAdmin && <th className="w-20"></th>}
+                    {(puedeEditar || puedeEliminar) && <th className="w-20"></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -301,19 +305,19 @@ export default function ContactosLeynaPage() {
                           <span className="badge text-[9px] bg-violet-100 text-violet-700">DESOI</span>
                         )}
                       </td>
-                      {isAdmin && (
+                      {(puedeEditar || puedeEliminar) && (
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
-                            <button onClick={(e) => openEdit(c, e)}
+                            {puedeEditar && <button onClick={(e) => openEdit(c, e)}
                               className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100">
                               <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); toggleActivo(c); }}
+                            </button>}
+                            {puedeEliminar && <button onClick={(e) => { e.stopPropagation(); toggleActivo(c); }}
                               title={c.activo ? "Desactivar" : "Activar"}
                               className={cn("p-1.5 rounded-lg text-xs font-bold",
                                 c.activo ? "text-surface-400 hover:bg-red-50 hover:text-red-500" : "text-surface-300 hover:bg-emerald-50 hover:text-emerald-500")}>
                               {c.activo ? "●" : "○"}
-                            </button>
+                            </button>}
                           </div>
                         </td>
                       )}
@@ -372,7 +376,7 @@ export default function ContactosLeynaPage() {
               <span className="text-[10px] text-surface-400">
                 Origen: {detalleItem.origen} · ID CSV: {detalleItem.csv_id || "—"}
               </span>
-              {isAdmin && (
+              {puedeEditar && (
                 <button onClick={(e) => { setDetalleOpen(false); openEdit(detalleItem, e); }}
                   className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600">
                   <Pencil className="w-3.5 h-3.5" />Editar
