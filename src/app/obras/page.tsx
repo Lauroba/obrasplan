@@ -5,6 +5,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import DataTable, { Column } from "@/components/shared/DataTable";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Obra, EstadoObra } from "@/lib/types/database";
 import { Building2, Plus, Archive, ArchiveRestore, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -13,6 +14,10 @@ import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario"
 
 export default function ObrasPage() {
   const { user } = useAuthStore();
+  const { isAdmin, canDo, loaded: permisosLoaded } = usePermissions();
+  // Solo filtrar por asignaciones si es operario puro (sin permisos crear/editar obras)
+  // Guard: mientras cargan los permisos, no filtrar (evita race condition)
+  const esSoloOperario = permisosLoaded && !isAdmin && !canDo("obras", "crear") && !canDo("obras", "editar");
   const [archivando, setArchivando] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   const [data, setData] = useState<Obra[]>([]);
@@ -29,7 +34,8 @@ export default function ObrasPage() {
       .order("fecha_inicio", { ascending: false });
 
     let visibleRows = (rows as Obra[]) || [];
-    if (user?.role !== "admin" && user?.recurso_id) {
+    // Solo filtrar si es operario puro Y los permisos ya cargaron
+    if (esSoloOperario && user?.recurso_id) {
       const [asigR, partesR] = await Promise.all([
         supabase.from("asignaciones").select("obra_id, fecha_inicio, fecha_fin").eq("recurso_tipo", "humano").eq("recurso_id", user.recurso_id),
         supabase.from("partes_diarios").select("obra_id, fecha, estado").eq("created_by", user.id),
@@ -41,9 +47,12 @@ export default function ObrasPage() {
     const { data: est } = await supabase.from("estados_obra").select("*").eq("activo", true).order("nombre");
     setEstados(est || []);
     setLoading(false);
-  }, [user]);
+  }, [user, esSoloOperario]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Esperar a que los permisos carguen antes de hacer el fetch inicial
+  useEffect(() => {
+    if (permisosLoaded) fetchData();
+  }, [fetchData, permisosLoaded]);
 
   const columns: Column<Obra>[] = [
     {
