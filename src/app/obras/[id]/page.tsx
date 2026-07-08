@@ -7,6 +7,7 @@ import Modal from "@/components/shared/Modal";
 import ResourceAvatar from "@/components/shared/ResourceAvatar";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Obra, Asignacion, RecursoHumano, Maquinaria, Tarea, TipoTarea, EstadoObra, Documento, ParteDiario } from "@/lib/types/database";
 import {
   Building2, ArrowLeft, MapPin, Users, Wrench, Truck, ClipboardList, FileText,
@@ -24,7 +25,10 @@ export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("obras", "crear");
+  const puedeEditar   = isAdmin || canDo("obras", "editar");
+  const puedeEliminar = isAdmin || canDo("obras", "eliminar");
   const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 

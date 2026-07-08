@@ -4,6 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Users2, Loader2, Search, Plus, Pencil, Mail, Phone } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
@@ -14,7 +15,10 @@ const ic = "w-full px-3 py-2 text-sm bg-surface-50 border border-surface-200 rou
 export default function ProveedoresPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("almacen_proveedores", "crear");
+  const puedeEditar   = isAdmin || canDo("almacen_proveedores", "editar");
+  const puedeEliminar = isAdmin || canDo("almacen_proveedores", "eliminar");
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");

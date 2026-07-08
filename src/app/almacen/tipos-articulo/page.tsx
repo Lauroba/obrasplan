@@ -4,6 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Tag, Loader2, Search, Plus, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
@@ -14,7 +15,10 @@ const emptyForm = { nombre: "", descripcion: "", activo: true, orden: 0 };
 export default function TiposArticuloPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("almacen_tipos_articulo", "crear");
+  const puedeEditar   = isAdmin || canDo("almacen_tipos_articulo", "editar");
+  const puedeEliminar = isAdmin || canDo("almacen_tipos_articulo", "eliminar");
 
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

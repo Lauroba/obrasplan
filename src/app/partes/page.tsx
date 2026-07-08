@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -31,7 +32,10 @@ export default function PartesPage() {
   const [obraOptions, setObraOptions] = useState<{ id: string; nombre: string; color: string; fecha: string }[]>([]);
   const [noObraError, setNoObraError] = useState("");
 
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("partes", "crear");
+  const puedeEditar   = isAdmin || canDo("partes", "editar");
+  const puedeEliminar = isAdmin || canDo("partes", "eliminar");
 
   // Selector de fecha (paso 1 para operario)
   const [dateModal, setDateModal] = useState(false);

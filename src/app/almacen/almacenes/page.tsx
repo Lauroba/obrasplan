@@ -5,6 +5,7 @@ import Modal from "@/components/shared/Modal";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   Warehouse, Loader2, Search, Plus, Pencil, Building2,
   ChevronRight, AlertTriangle, TrendingDown, Package,
@@ -31,7 +32,10 @@ function StockBadge({ label, value, warn }: { label: string; value: number; warn
 export default function AlmacenesPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("almacen_almacenes", "crear");
+  const puedeEditar   = isAdmin || canDo("almacen_almacenes", "editar");
+  const puedeEliminar = isAdmin || canDo("almacen_almacenes", "eliminar");
 
   const [data, setData] = useState<any[]>([]);
   const [obras, setObras] = useState<any[]>([]);

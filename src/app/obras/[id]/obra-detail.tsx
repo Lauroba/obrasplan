@@ -7,6 +7,7 @@ import Modal from "@/components/shared/Modal";
 import ResourceAvatar from "@/components/shared/ResourceAvatar";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Obra, Asignacion, RecursoHumano, Maquinaria, Tarea, TipoTarea, EstadoObra, Documento, ParteDiario } from "@/lib/types/database";
 import {
   Building2, ArrowLeft, MapPin, Users, Wrench, Truck, ClipboardList, FileText,
@@ -24,6 +25,7 @@ export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
+  const { isAdmin } = usePermissions();
   const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -418,7 +420,7 @@ export default function ObraDetallePage() {
                 <p className="text-xs text-surface-400 mb-5">
                   El código se generará como OBRA-{(obra as any)?.num_presupuesto || (id as string).slice(0, 8).toUpperCase()}.
                 </p>
-                {user?.role === "admin" && (
+                {isAdmin && (
                   <button
                     disabled={creandoAlmacen}
                     onClick={async () => {

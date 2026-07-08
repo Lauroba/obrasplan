@@ -5,6 +5,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Contact, Plus, Loader2, Pencil, Trash2, Users, Phone, Mail, Globe, Building2, ChevronDown, ChevronRight, FileText, Download } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -15,7 +16,10 @@ const emptyContacto = { nombre: "", email: "", telefono: "", cargo: "", notas: "
 export default function ClientesPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_clientes", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_clientes", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_clientes", "eliminar");
   const [clientes, setClientes] = useState<any[]>([]);
   const [contactos, setContactos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

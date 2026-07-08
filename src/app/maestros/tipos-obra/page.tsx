@@ -5,6 +5,7 @@ import DataTable, { Column } from "@/components/shared/DataTable";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import { logAuditErrorClient } from "@/lib/audit/logAuditError";
 import { Building2, Loader2 } from "lucide-react";
 
@@ -14,7 +15,11 @@ export default function TiposObraPage() {
   const [modalOpen, setModalOpen] = useState(false); const [form, setForm] = useState({ nombre: "" });
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const isAdmin = user?.role === "admin"; const supabase = createClient();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_tipos_obra", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_tipos_obra", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_tipos_obra", "eliminar");
+  const supabase = createClient();
   const fetchData = useCallback(async () => { setLoading(true); const { data: r } = await supabase.from("tipos_obra").select("*").eq("activo", true).order("nombre"); setData(r || []); setLoading(false); }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
 

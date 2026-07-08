@@ -6,6 +6,7 @@ import Modal from "@/components/shared/Modal";
 import PhotoUpload from "@/components/shared/PhotoUpload";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Material } from "@/lib/types/database";
 import { Package, Loader2 } from "lucide-react";
 
@@ -16,7 +17,11 @@ export default function MaterialesPage() {
   const [data, setData] = useState<Material[]>([]); const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false); const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
-  const isAdmin = user?.role === "admin"; const supabase = createClient();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_materiales", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_materiales", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_materiales", "eliminar");
+  const supabase = createClient();
   const fetchData = useCallback(async () => { setLoading(true); const { data: r } = await supabase.from("materiales").select("*").eq("activo", true).order("nombre"); setData(r || []); setLoading(false); }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
   const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true); if (editingId) await supabase.from("materiales").update(form as any).eq("id", editingId); else await supabase.from("materiales").insert(form as any); setSaving(false); setModalOpen(false); fetchData(); };

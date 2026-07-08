@@ -5,6 +5,7 @@ import DataTable, { Column } from "@/components/shared/DataTable";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { EstadoObra } from "@/lib/types/database";
 import { Tag, Loader2 } from "lucide-react";
 
@@ -16,7 +17,11 @@ export default function EstadosObraPage() {
   const [data, setData] = useState<EstadoObra[]>([]); const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false); const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
-  const isAdmin = user?.role === "admin"; const supabase = createClient();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_estados", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_estados", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_estados", "eliminar");
+  const supabase = createClient();
 
   const fetchData = useCallback(async () => {
     setLoading(true);

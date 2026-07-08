@@ -5,6 +5,7 @@ import Modal from "@/components/shared/Modal";
 import { FotoArticulo } from "@/components/shared/FotoArticulo";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   Package, Loader2, Search, Plus, Pencil, Upload, Download,
   AlertTriangle, Calendar, Wrench, History, ClipboardList,
@@ -35,7 +36,10 @@ const TIPO_MOV_BADGE: Record<string, string> = {
 export default function ArticulosPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("almacen_articulos", "crear");
+  const puedeEditar   = isAdmin || canDo("almacen_articulos", "editar");
+  const puedeEliminar = isAdmin || canDo("almacen_articulos", "eliminar");
   const fileRef = useRef<HTMLInputElement>(null);
   const fotoRef = useRef<HTMLInputElement>(null);
 

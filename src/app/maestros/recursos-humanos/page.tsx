@@ -7,6 +7,7 @@ import Modal from "@/components/shared/Modal";
 import PhotoUpload from "@/components/shared/PhotoUpload";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { RecursoHumano } from "@/lib/types/database";
 import { Users, Loader2, ShieldCheck, UserX, UserCheck, Eye, EyeOff, CalendarOff } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -27,7 +28,11 @@ export default function RecursosHumanosPage() {
   const [togglingAccess, setTogglingAccess] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [dbRoles, setDbRoles] = useState<{ id: string; nombre: string; is_admin: boolean }[]>([]);
-  const isAdmin = user?.role === "admin"; const supabase = createClient();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_rrhh", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_rrhh", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_rrhh", "eliminar");
+  const supabase = createClient();
 
   const fetchData = useCallback(async () => {
     setLoading(true);

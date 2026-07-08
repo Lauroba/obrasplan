@@ -7,6 +7,7 @@ import SignatureCanvas from "@/components/partes/SignatureCanvas";
 import AudioRecorder from "@/components/partes/AudioRecorder";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { ParteDiario, ParteLinea, Documento, ParteAudio, TipoTrabajo, RecursoHumano } from "@/lib/types/database";
 import {
   ClipboardList, ArrowLeft, Loader2, Upload, Trash2, FileText,
@@ -47,7 +48,7 @@ export default function ParteDetallePage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const isAdminUser = user?.role === "admin";
+    const isAdminUser = isAdmin;
     const [parteR, lineasR, docsR, audiosR, tiposR, rrhhR, obrasR, usersR, misAsigR] = await Promise.all([
       supabase.from("partes_diarios").select("*, obra:obras(*), creator:users!partes_diarios_created_by_fkey(nombre)").eq("id", id).single(),
       supabase.from("parte_lineas").select("*, tipo_trabajo:tipos_trabajo(nombre)").eq("parte_id", id).order("orden"),
@@ -89,7 +90,10 @@ export default function ParteDetallePage() {
   }, [id, user]);
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("partes", "crear");
+  const puedeEditar   = isAdmin || canDo("partes", "editar");
+  const puedeEliminar = isAdmin || canDo("partes", "eliminar");
   const isEditable = parte?.estado === "pendiente" || parte?.estado === "borrador";
   const hasObra = !!form.obra_id;
 
@@ -336,7 +340,7 @@ export default function ParteDetallePage() {
           </div>
           <div className="mt-4">
             <label className="block text-xs font-medium text-surface-700 mb-1">Creado por</label>
-            {user?.role === "admin" && isEditable ? (
+            {isAdmin && isEditable ? (
               <select value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} className={ic}>
                 {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
               </select>

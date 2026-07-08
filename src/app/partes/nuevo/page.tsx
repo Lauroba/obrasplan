@@ -6,6 +6,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import SignatureCanvas from "@/components/partes/SignatureCanvas";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { TipoTrabajo, RecursoHumano } from "@/lib/types/database";
 import { ClipboardList, ArrowLeft, Loader2, Plus, Trash2, Save } from "lucide-react";
 import Link from "next/link";
@@ -18,6 +19,7 @@ function NuevoParteContent() {
   const searchParams = useSearchParams();
   const presetObra = searchParams.get("obra");
   const { user } = useAuthStore();
+  const { isAdmin } = usePermissions();
   const supabase = createClient();
 
   const [obras, setObras] = useState<any[]>([]);
@@ -128,7 +130,7 @@ function NuevoParteContent() {
           </div>
           <div className="mt-4">
             <label className="block text-xs font-medium text-surface-700 mb-1">Creado por</label>
-            {user?.role === "admin" ? (
+            {isAdmin ? (
               <select value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} className={ic}>
                 {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
               </select>

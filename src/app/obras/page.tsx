@@ -73,7 +73,7 @@ export default function ObrasPage() {
     {
       key: "archivada" as any, header: "",
       render: (item) => {
-        if (user?.role !== "admin") return null;
+        if (!isAdmin) return null;
         const estaArchivada = !!(item as any).archivada;
         const isConfirming = confirmArchive === item.id;
         const isLoading = archivando === item.id;
@@ -148,7 +148,7 @@ export default function ObrasPage() {
               <option value="">Todos los estados</option>
               {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
-            {user?.role === "admin" && (
+            {isAdmin && (
               <Link href="/obras/nueva" className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
                 <Plus className="w-4 h-4" /> Nueva obra
               </Link>

@@ -5,6 +5,7 @@ import DataTable, { Column } from "@/components/shared/DataTable";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { TipoTrabajo } from "@/lib/types/database";
 import { Hammer, Loader2 } from "lucide-react";
 
@@ -13,7 +14,11 @@ export default function TiposTrabajoPage() {
   const [data, setData] = useState<TipoTrabajo[]>([]); const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false); const [form, setForm] = useState({ nombre: "" });
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
-  const isAdmin = user?.role === "admin"; const supabase = createClient();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_tipos_trabajo", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_tipos_trabajo", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_tipos_trabajo", "eliminar");
+  const supabase = createClient();
   const fetchData = useCallback(async () => { setLoading(true); const { data: r } = await supabase.from("tipos_trabajo").select("*").eq("activo", true).order("nombre"); setData(r || []); setLoading(false); }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
   const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true); if (editingId) await supabase.from("tipos_trabajo").update(form as any).eq("id", editingId); else await supabase.from("tipos_trabajo").insert(form as any); setSaving(false); setModalOpen(false); fetchData(); };

@@ -4,6 +4,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   Tag, Loader2, Plus, Pencil, Trash2, Eye, Printer,
   Copy, Package, RefreshCw, ChevronDown, Check,
@@ -112,7 +113,10 @@ function EtiquetaPreview({ plantilla, articulo, qrDataUrl }: {
 export default function EtiquetasPage() {
   const { user } = useAuthStore();
   const supabase = createClient();
-  const isAdmin = user?.role === "admin";
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("almacen_etiquetas", "crear");
+  const puedeEditar   = isAdmin || canDo("almacen_etiquetas", "editar");
+  const puedeEliminar = isAdmin || canDo("almacen_etiquetas", "eliminar");
 
   const [plantillas, setPlantillas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
