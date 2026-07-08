@@ -27,6 +27,7 @@ const navigation = [
 // ninguna otra parte del Sidebar ni del sistema de permisos.
 const aplicaciones = [
   { name: "Interpretación de Georradar", href: "/aplicaciones/georadar", icon: Radar, screen: "apps_georadar" },
+  { name: "Georadar V2 ✦ IA", href: "/aplicaciones/georadar-v2", icon: Radar, screen: "apps_georadar_v2" },
 ];
 
 const almacen = [
