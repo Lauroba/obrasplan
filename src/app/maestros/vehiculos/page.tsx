@@ -6,6 +6,7 @@ import Modal from "@/components/shared/Modal";
 import PhotoUpload from "@/components/shared/PhotoUpload";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
+import { usePermissions } from "@/hooks/usePermissions";
 import type { Vehiculo } from "@/lib/types/database";
 import { Truck, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -18,7 +19,11 @@ export default function VehiculosPage() {
   const [data, setData] = useState<Vehiculo[]>([]); const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false); const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
-  const isAdmin = user?.role === "admin"; const supabase = createClient();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeCrear    = isAdmin || canDo("maestros_vehiculos", "crear");
+  const puedeEditar   = isAdmin || canDo("maestros_vehiculos", "editar");
+  const puedeEliminar = isAdmin || canDo("maestros_vehiculos", "eliminar");
+  const supabase = createClient();
   const fetchData = useCallback(async () => { setLoading(true); const { data: r } = await supabase.from("vehiculos").select("*").eq("activo", true).order("nombre"); setData(r || []); setLoading(false); }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
   const handleSubmit = async (e: React.FormEvent) => {
@@ -46,10 +51,10 @@ export default function VehiculosPage() {
     <AppLayout><div className="max-w-7xl mx-auto animate-fade-in">
       <div className="flex items-center gap-3 mb-6"><div className="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center"><Truck className="w-5 h-5 text-teal-600" /></div><div><h1 className="text-xl font-display font-bold text-surface-900">Vehículos</h1><p className="text-sm text-surface-500">Gestión de vehículos</p></div></div>
       <DataTable data={data} columns={columns} title="Vehículos" loading={loading} searchPlaceholder="Buscar..." searchKeys={["nombre", "matricula", "tipo"]}
-        onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setModalOpen(true); } : undefined}
-        onEdit={isAdmin ? (i) => { setForm({ nombre: i.nombre, matricula: i.matricula || "", tipo: i.tipo || "", estado: i.estado, observaciones: i.observaciones || "", foto_url: i.foto_url || "", asignable: (i as any).asignable !== false }); setEditingId(i.id); setModalOpen(true); } : undefined}
-        onDelete={isAdmin ? async (i) => { await (supabase.from("vehiculos") as any).update({ activo: false }).eq("id", i.id); fetchData(); } : undefined}
-        addLabel="Nuevo vehículo" canAdd={isAdmin} canEdit={isAdmin} canDelete={isAdmin} />
+        onAdd={puedeCrear ? () => { setForm(emptyForm); setEditingId(null); setModalOpen(true); } : undefined}
+        onEdit={puedeEditar ? (i) => { setForm({ nombre: i.nombre, matricula: i.matricula || "", tipo: i.tipo || "", estado: i.estado, observaciones: i.observaciones || "", foto_url: i.foto_url || "", asignable: (i as any).asignable !== false }); setEditingId(i.id); setModalOpen(true); } : undefined}
+        onDelete={puedeEliminar ? async (i) => { await (supabase.from("vehiculos") as any).update({ activo: false }).eq("id", i.id); fetchData(); } : undefined}
+        addLabel="Nuevo vehículo" canAdd={puedeCrear} canEdit={puedeEditar} canDelete={puedeEliminar} />
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar vehículo" : "Nuevo vehículo"}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex items-start gap-4">
