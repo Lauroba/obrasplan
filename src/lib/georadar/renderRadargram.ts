@@ -64,6 +64,8 @@ export function drawBackground(
   const { data, COLS, ROWS } = rd;
   const colS = cS;
   const colE = cE ?? COLS;
+  // Guard: createImageData lanza DOMException si W o H es 0
+  if (W < 1 || H < 1) return;
   const img = ctx.createImageData(W, H);
   for (let y = 0; y < H; y++) {
     const ri = Math.min(Math.floor((y / H) * ROWS), ROWS - 1);
