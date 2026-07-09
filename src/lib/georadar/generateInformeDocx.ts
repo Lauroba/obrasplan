@@ -76,7 +76,7 @@ export async function generateInformeDocx(d: InformeData): Promise<Buffer> {
   const totNeto = voids.reduce((t, a) => t + a.vNet, 0);
 
   const riskLabel: Record<string, string> = { high: "ALTO", med: "MEDIO", low: "BAJO" };
-  const typeLabel: Record<string, string> = { void: "Hueco", supply: "Suministro" };
+  const typeLabel: Record<string, string> = { void: "Anomalía", supply: "Suministro", pipe: "Tubería", anomaly: "Anomalía" };
 
   const resumenRows: [string, string][] = [
     ["Cliente", d.clienteNombre || "-"],
@@ -111,7 +111,7 @@ export async function generateInformeDocx(d: InformeData): Promise<Buffer> {
   });
 
   const resultadosRows: [string, string][] = [
-    ["Numero de huecos detectados", String(voids.length)],
+    ["Anomalías detectadas", String(voids.length)],
     ["Numero de suministros detectados", String(supplies.length)],
     ["Riesgo ALTO", String(hi)],
     ["Riesgo MEDIO", String(me)],
@@ -150,7 +150,7 @@ export async function generateInformeDocx(d: InformeData): Promise<Buffer> {
     (a, i) =>
       new TableRow({
         children: [
-          dataCell((a.type === "void" ? "H" : "S") + (i + 1), anomColWidths[0]),
+          dataCell((a.type === "void" || a.type === "anomaly" ? "A" : a.type === "supply" ? "S" : "T") + (i + 1), anomColWidths[0]),
           dataCell(typeLabel[a.type], anomColWidths[1]),
           dataCell(a.risk ? riskLabel[a.risk] : "-", anomColWidths[2]),
           dataCell(a.dM + " m", anomColWidths[3]),

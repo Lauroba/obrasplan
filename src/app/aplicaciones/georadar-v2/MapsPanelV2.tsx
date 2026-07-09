@@ -1,56 +1,60 @@
 "use client";
 /**
- * MapsPanelV2.tsx — Panel de mapa Google Maps para Georadar V2.
- * Cargado con dynamic/ssr:false desde page.tsx.
+ * MapsPanelV2.tsx — Google Maps con heatmap canvas para Georadar V2.
  *
- * Fixes respecto a la versión anterior:
- *  - Race condition al guardar la API Key: se usa un ref para el div del mapa
- *    y se inicializa el mapa con un callback en la URL del script (?callback=)
- *    en lugar de onload, garantizando que google.maps está listo cuando se llama.
- *  - Si el script ya existe en el DOM, se detecta y no se re-inserta.
- *  - Filtros por tipo de anomalía (Hueco, Suministro, Tubería, Anomalía).
- *  - Leyenda siempre visible.
+ * Mejoras respecto a la versión anterior:
+ *  - "Hueco" renombrado a "Anomalía" en toda la UI
+ *  - Mapa de calor implementado con Canvas 2D sobre el mapa de Google
+ *    (equivalente al heatmap de la V1 con Leaflet, sin dependencias extra)
+ *  - Toggle mapa/heatmap
+ *  - Fix: store.gps (no store.gpsPoints)
+ *  - Fix: race condition al guardar API Key con callback= en la URL del script
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useGeoradarStore } from "@/lib/georadar/useGeoradarStore";
-import { Eye, EyeOff, AlertTriangle } from "lucide-react";
+import { Eye, EyeOff, AlertTriangle, Flame, Map } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
-// ============================================================
-// Tipos y configuración visual
-// ============================================================
-type AnomalyTypeV2 = "void" | "supply" | "pipe" | "anomaly";
+// ─────────────────────────────────────────────────────────────
+// Tipos y config visual — "void" se muestra como "Anomalía"
+// ─────────────────────────────────────────────────────────────
+type AnomalyTypeV2 = "anomaly" | "supply" | "pipe";
 
 const TIPO_V2: Record<AnomalyTypeV2, { label: string; color: string; letra: string }> = {
-  void:    { label: "Hueco",      color: "#DC2626", letra: "H" },
+  anomaly: { label: "Anomalía",   color: "#DC2626", letra: "A" },
   supply:  { label: "Suministro", color: "#2563EB", letra: "S" },
   pipe:    { label: "Tubería",    color: "#D97706", letra: "T" },
-  anomaly: { label: "Anomalía",   color: "#7C3AED", letra: "A" },
 };
 
 const RISK_COLOR: Record<string, string> = {
   high: "#DC2626", med: "#D97706", low: "#2563EB",
 };
-
 const RISK_LABEL: Record<string, string> = {
   high: "ALTO", med: "MEDIO", low: "BAJO",
 };
 
-const LS_KEY = "georadar_v2_gmaps_key";
-// Nombre global del callback para Google Maps
-const GMAPS_CB = "__gmapsV2Ready__";
+const LS_KEY    = "georadar_v2_gmaps_key";
+const GMAPS_CB  = "__gmapsV2Ready__";
 
-// ============================================================
+// ─────────────────────────────────────────────────────────────
 // Helpers
-// ============================================================
+// ─────────────────────────────────────────────────────────────
+function classifyType(a: any): AnomalyTypeV2 {
+  // void y anomaly → "Anomalía". supply estrecho → tubería
+  if (a.type === "pipe")    return "pipe";
+  if (a.type === "supply")  return (a.wM ?? 0.5) < 0.15 ? "pipe" : "supply";
+  return "anomaly"; // void, anomaly y cualquier otro
+}
+
 function markerSVG(tipo: AnomalyTypeV2, label: string, risk: string): string {
   const cfg = TIPO_V2[tipo];
+  const dot = risk === "high"
+    ? `<circle cx="17" cy="17" r="15" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="3,2" opacity=".6"/>`
+    : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34">
     <circle cx="17" cy="17" r="15" fill="${cfg.color}" stroke="white" stroke-width="2.5"/>
-    ${risk === "high"
-      ? `<circle cx="17" cy="17" r="15" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="3,2" opacity=".6"/>`
-      : ""}
+    ${dot}
     <text x="17" y="21" text-anchor="middle" fill="white" font-size="10"
       font-weight="700" font-family="monospace,sans-serif">${label}</text>
   </svg>`;
@@ -58,133 +62,213 @@ function markerSVG(tipo: AnomalyTypeV2, label: string, risk: string): string {
 
 function popupHTML(a: any, tipo: AnomalyTypeV2, idx: number): string {
   const cfg = TIPO_V2[tipo];
-  const rColor = RISK_COLOR[a.risk] || "#6B7280";
-  return `
-    <div style="font-family:system-ui,sans-serif;min-width:200px;padding:2px">
-      <b style="color:${cfg.color};font-size:13px">${cfg.label} ${idx + 1}</b>
-      <hr style="margin:6px 0;border-color:${cfg.color}30"/>
-      <table style="width:100%;font-size:11.5px;border-collapse:collapse">
-        <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Distancia</td>
-            <td><b>${a.distM ?? "—"} m</b></td></tr>
-        <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Profundidad</td>
-            <td><b>${a.dM ?? "—"} m</b></td></tr>
-        <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Dimensiones</td>
-            <td><b>${a.wM ?? "—"} × ${a.hM ?? "—"} m</b></td></tr>
-        ${a.type === "void" ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">Vol. neto</td>
-            <td><b>${typeof a.vNet === "number" ? a.vNet.toFixed(4) : "—"} m³</b></td></tr>` : ""}
-        <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Riesgo</td>
-            <td><b style="color:${rColor}">${RISK_LABEL[a.risk] || a.risk}</b></td></tr>
-        <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Confianza</td>
-            <td><b>${Math.round((a.conf ?? 0.7) * 100)}%</b></td></tr>
-        ${a.gpt ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">GPS</td>
-            <td style="font-size:10px"><b>${a.gpt.lat.toFixed(6)}, ${a.gpt.lon.toFixed(6)}</b></td></tr>` : ""}
-      </table>
-    </div>`;
+  const rc  = RISK_COLOR[a.risk] || "#6B7280";
+  return `<div style="font-family:system-ui,sans-serif;min-width:200px;padding:2px">
+    <b style="color:${cfg.color};font-size:13px">${cfg.label} ${idx + 1}</b>
+    <hr style="margin:6px 0;border-color:${cfg.color}30"/>
+    <table style="width:100%;font-size:11.5px;border-collapse:collapse">
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Distancia</td>
+          <td><b>${a.distM ?? "—"} m</b></td></tr>
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Profundidad</td>
+          <td><b>${a.dM ?? "—"} m</b></td></tr>
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Dimensiones</td>
+          <td><b>${a.wM ?? "—"}×${a.hM ?? "—"} m</b></td></tr>
+      ${(a.type === "void" || a.type === "anomaly")
+        ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">Vol. neto</td>
+           <td><b>${typeof a.vNet === "number" ? a.vNet.toFixed(4) : "—"} m³</b></td></tr>` : ""}
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Riesgo</td>
+          <td><b style="color:${rc}">${RISK_LABEL[a.risk] || a.risk}</b></td></tr>
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Confianza</td>
+          <td><b>${Math.round((a.conf ?? 0.7) * 100)}%</b></td></tr>
+      ${a.gpt ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">GPS</td>
+          <td style="font-size:10px"><b>${a.gpt.lat.toFixed(6)}, ${a.gpt.lon.toFixed(6)}</b></td></tr>` : ""}
+    </table>
+  </div>`;
 }
 
-function classifyType(a: any): AnomalyTypeV2 {
-  if (a.type === "void") return "void";
-  if (a.type === "pipe") return "pipe";
-  if (a.type === "anomaly") return "anomaly";
-  // supply: estrecho (<0.15m) → tubería, ancho → suministro
-  return (a.wM ?? 0.5) < 0.15 ? "pipe" : "supply";
+// ─────────────────────────────────────────────────────────────
+// Mapa de calor Canvas sobre Google Maps
+// ─────────────────────────────────────────────────────────────
+function drawHeatmap(
+  canvas: HTMLCanvasElement,
+  map: any,
+  anoms: any[],
+  radiusPx = 40
+) {
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, W, H);
+  if (!anoms.length) return;
+
+  // Solo anomalías con GPS
+  const pts = anoms
+    .filter(a => a.gpt && (a.type === "void" || a.type === "anomaly"))
+    .map(a => {
+      try {
+        const G    = (window as any).google.maps;
+        const proj = map.getProjection();
+        const bounds = map.getBounds();
+        if (!proj || !bounds) return null;
+        const ne   = bounds.getNorthEast();
+        const sw   = bounds.getSouthWest();
+        const neP  = proj.fromLatLngToPoint(ne);
+        const swP  = proj.fromLatLngToPoint(sw);
+        const scale = Math.pow(2, map.getZoom());
+        const worldPt = proj.fromLatLngToPoint(new G.LatLng(a.gpt.lat, a.gpt.lon));
+        const x = (worldPt.x - swP.x) * scale;
+        const y = (worldPt.y - neP.y) * scale;
+        return { x, y, w: (a.vBruto || 0.01) };
+      } catch { return null; }
+    })
+    .filter((p): p is { x: number; y: number; w: number } =>
+      !!p && isFinite(p.x) && isFinite(p.y));
+
+  if (!pts.length) return;
+
+  const maxW = Math.max(...pts.map(p => p.w), 1e-12);
+  const field = new Float32Array(W * H);
+
+  pts.forEach(pt => {
+    const weight = (pt.w / maxW) + 0.15;
+    const x0 = Math.max(0, Math.round(pt.x - radiusPx));
+    const x1 = Math.min(W - 1, Math.round(pt.x + radiusPx));
+    const y0 = Math.max(0, Math.round(pt.y - radiusPx));
+    const y1 = Math.min(H - 1, Math.round(pt.y + radiusPx));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const d = Math.sqrt((x - pt.x) ** 2 + (y - pt.y) ** 2);
+        if (d < radiusPx) {
+          field[y * W + x] += weight * (1 - d / radiusPx) ** 2;
+        }
+      }
+    }
+  });
+
+  const maxF = Math.max(...Array.from(field));
+  if (maxF === 0) return;
+
+  const img = ctx.createImageData(W, H);
+  for (let i = 0; i < field.length; i++) {
+    const t = field[i] / maxF;
+    if (t < 0.01) continue;
+    const [r, g, b] = t < 0.33
+      ? [0, Math.round(t * 3 * 255), 255]               // azul→cyan
+      : t < 0.66
+      ? [Math.round((t - 0.33) * 3 * 255), 255, Math.round((0.66 - t) * 3 * 255)] // cyan→verde→amarillo
+      : [255, Math.round((1 - t) * 255), 0];             // amarillo→rojo
+    const a = Math.round(t * 0.8 * 255);
+    const idx = i * 4;
+    img.data[idx] = r; img.data[idx+1] = g; img.data[idx+2] = b; img.data[idx+3] = a;
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
-// ============================================================
-// Componente
-// ============================================================
+// ─────────────────────────────────────────────────────────────
+// Componente principal
+// ─────────────────────────────────────────────────────────────
 export default function MapsPanelV2() {
   const store = useGeoradarStore();
 
   const mapDivRef  = useRef<HTMLDivElement>(null);
+  const heatCanvas = useRef<HTMLCanvasElement>(null);
   const mapInst    = useRef<any>(null);
   const markers    = useRef<any[]>([]);
   const polyRef    = useRef<any>(null);
   const infoRef    = useRef<any>(null);
+  const heatListener = useRef<any>(null);
 
-  const [apiKey,    setApiKey]   = useState("");
-  const [draft,     setDraft]    = useState("");
-  const [showKey,   setShowKey]  = useState(false);
+  const [apiKey,    setApiKey]    = useState("");
+  const [draft,     setDraft]     = useState("");
+  const [showKey,   setShowKey]   = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [filters,   setFilters]  = useState<Record<AnomalyTypeV2, boolean>>(
-    { void: true, supply: true, pipe: true, anomaly: true }
+  const [viewMode,  setViewMode]  = useState<"map" | "heat" | "both">("map");
+  const [filters,   setFilters]   = useState<Record<AnomalyTypeV2, boolean>>(
+    { anomaly: true, supply: true, pipe: true }
   );
 
-  // ── 1. Cargar API Key guardada ─────────────────────────────
+  // Cargar key
   useEffect(() => {
-    const env = process.env.NEXT_PUBLIC_GMAPS_KEY || "";
-    const ls  = localStorage.getItem(LS_KEY) || "";
-    const key = env || ls;
-    setApiKey(key);
-    setDraft(key);
+    const k = process.env.NEXT_PUBLIC_GMAPS_KEY || localStorage.getItem(LS_KEY) || "";
+    setApiKey(k); setDraft(k);
   }, []);
 
-  // ── 2. Cargar el script de Google Maps ────────────────────
+  // Cargar script Google Maps
   useEffect(() => {
     if (!apiKey) return;
+    if ((window as any).google?.maps) { setMapsReady(true); return; }
 
-    // Si Google Maps ya está disponible, listo
-    if ((window as any).google?.maps) {
-      setMapsReady(true);
-      return;
-    }
-
-    // Registrar callback global ANTES de insertar el script
     (window as any)[GMAPS_CB] = () => {
       setMapsReady(true);
       delete (window as any)[GMAPS_CB];
     };
 
-    // Evitar doble inserción
     if (document.getElementById("gmaps-v2")) {
-      // Script ya en DOM pero Maps aún no disponible: esperar
       const t = setInterval(() => {
-        if ((window as any).google?.maps) {
-          setMapsReady(true);
-          clearInterval(t);
-        }
-      }, 200);
+        if ((window as any).google?.maps) { setMapsReady(true); clearInterval(t); }
+      }, 150);
       return () => clearInterval(t);
     }
 
     const s = document.createElement("script");
-    s.id  = "gmaps-v2";
-    // callback= en la URL garantiza que google.maps está inicializado cuando se llama
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=${GMAPS_CB}`;
-    s.async = true;
-    s.defer = true;
+    s.id    = "gmaps-v2";
+    s.src   = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=${GMAPS_CB}`;
+    s.async = true; s.defer = true;
     s.onerror = () => {
-      setLoadError("No se pudo cargar Google Maps. Verifica la API Key y que Maps JavaScript API está activada.");
+      setLoadError("No se pudo cargar Google Maps. Verifica la API Key y activa Maps JavaScript API.");
       delete (window as any)[GMAPS_CB];
     };
     document.head.appendChild(s);
   }, [apiKey]);
 
-  // ── 3. Inicializar el mapa cuando Google Maps esté listo ──
+  // Inicializar mapa
   useEffect(() => {
     if (!mapsReady || !mapDivRef.current || mapInst.current) return;
     const G = (window as any).google.maps;
-    const gps = store.gps;
+    const gps = store.gps as { lat: number; lon: number; dist?: number }[];
     const center = gps.length > 0
       ? { lat: gps[0].lat, lng: gps[0].lon }
       : { lat: 42.82, lng: -1.64 };
 
     mapInst.current = new G.Map(mapDivRef.current, {
-      center, zoom: 18,
-      mapTypeId: "satellite",
-      mapTypeControl: true,
-      fullscreenControl: false,
-      streetViewControl: false,
+      center, zoom: 18, mapTypeId: "satellite",
+      mapTypeControl: true, fullscreenControl: false, streetViewControl: false,
     });
-  }, [mapsReady, store.gps]);
 
-  // ── 4. Redibujar marcadores ────────────────────────────────
+    // Registrar overlay del heatmap canvas
+    class HeatOverlay extends G.OverlayView {
+      onAdd() {}
+      draw() {
+        if (!heatCanvas.current || !this.getProjection()) return;
+        const cvs = heatCanvas.current;
+        cvs.width  = mapDivRef.current?.clientWidth  || 600;
+        cvs.height = mapDivRef.current?.clientHeight || 400;
+        drawHeatmap(cvs, mapInst.current, store.anoms);
+      }
+      onRemove() {}
+    }
+    const overlay = new HeatOverlay();
+    overlay.setMap(mapInst.current);
+
+    // Re-dibujar heatmap en cada movimiento del mapa
+    heatListener.current = mapInst.current.addListener("idle", () => {
+      if (heatCanvas.current) {
+        heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+        heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+        drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapsReady]);
+
+  // Redibujar marcadores y heatmap cuando cambian datos o filtros
   useEffect(() => {
     if (!mapsReady || !mapInst.current) return;
     const G = (window as any).google.maps;
 
-    // Limpiar
+    // Limpiar marcadores
     markers.current.forEach(m => m.setMap(null));
     markers.current = [];
     if (infoRef.current) { infoRef.current.close(); infoRef.current = null; }
@@ -203,7 +287,7 @@ export default function MapsPanelV2() {
       mapInst.current.fitBounds(b);
     }
 
-    // Marcadores
+    // Marcadores de anomalías
     (store.anoms as any[]).forEach((a, i) => {
       if (!a.gpt) return;
       const tipo = classifyType(a);
@@ -216,15 +300,13 @@ export default function MapsPanelV2() {
         scaledSize: new G.Size(34, 34),
         anchor:     new G.Point(17, 17),
       };
-
       const mk = new G.Marker({
         position: { lat: a.gpt.lat, lng: a.gpt.lon },
-        map: mapInst.current,
-        icon,
+        map: mapInst.current, icon,
         title: `${cfg.label} ${i + 1}`,
         zIndex: a.risk === "high" ? 100 : a.risk === "med" ? 50 : 10,
+        visible: viewMode !== "heat",
       });
-
       const iw = new G.InfoWindow({ content: popupHTML(a, tipo, i) });
       mk.addListener("click", () => {
         if (infoRef.current) infoRef.current.close();
@@ -233,22 +315,35 @@ export default function MapsPanelV2() {
       });
       markers.current.push(mk);
     });
-  }, [mapsReady, store.anoms, store.gps, filters]);
+
+    // Redibujar heatmap
+    if (heatCanvas.current) {
+      heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+      heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+      drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+    }
+  }, [mapsReady, store.anoms, store.gps, filters, viewMode]);
+
+  // Mostrar/ocultar heatmap canvas y marcadores según modo
+  useEffect(() => {
+    if (heatCanvas.current) {
+      heatCanvas.current.style.display = viewMode === "map" ? "none" : "block";
+      heatCanvas.current.style.opacity = viewMode === "both" ? "0.75" : "1";
+    }
+    markers.current.forEach(m => {
+      m.setVisible?.(viewMode !== "heat");
+    });
+  }, [viewMode]);
 
   const saveKey = () => {
-    const k = draft.trim();
-    if (!k) return;
+    const k = draft.trim(); if (!k) return;
     localStorage.setItem(LS_KEY, k);
-    setApiKey(k);
-    setLoadError("");
-    setMapsReady(false);
-    // Forzar recarga del script con la nueva key
+    setApiKey(k); setLoadError(""); setMapsReady(false);
+    mapInst.current = null;
     const old = document.getElementById("gmaps-v2");
     if (old) old.remove();
     if ((window as any).google) delete (window as any).google;
-    mapInst.current = null;
   };
-
   const clearKey = () => {
     localStorage.removeItem(LS_KEY);
     setApiKey(""); setDraft(""); setLoadError(""); setMapsReady(false);
@@ -257,23 +352,21 @@ export default function MapsPanelV2() {
     if (old) old.remove();
   };
 
-  // ── Sin API Key ────────────────────────────────────────────
+  // ── Sin key ────────────────────────────────────────────────
   if (!apiKey) return (
     <div className="flex flex-col items-center justify-center h-full bg-surface-50 rounded-xl border border-surface-200 gap-4 p-8">
       <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center">
-        <svg className="w-6 h-6 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-        </svg>
+        <Map className="w-6 h-6 text-brand-500" />
       </div>
       <div className="text-center">
         <p className="text-sm font-semibold text-surface-800 mb-1">Google Maps API Key requerida</p>
         <p className="text-xs text-surface-500 max-w-xs">
-          Necesitas una clave de{" "}
+          Consíguela en{" "}
           <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
             rel="noopener noreferrer" className="text-brand-600 hover:underline">
             Google Cloud Console
           </a>{" "}
-          con <em>Maps JavaScript API</em> activada.
+          activando <em>Maps JavaScript API</em>.
         </p>
       </div>
       <div className="flex gap-2 w-full max-w-sm">
@@ -284,10 +377,8 @@ export default function MapsPanelV2() {
             placeholder="AIzaSy..."
             className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 pr-9" />
           <button onClick={() => setShowKey(s => !s)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600">
-            {showKey
-              ? <EyeOff className="w-3.5 h-3.5" />
-              : <Eye className="w-3.5 h-3.5" />}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-400">
+            {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
           </button>
         </div>
         <button onClick={saveKey} disabled={!draft.trim()}
@@ -295,26 +386,21 @@ export default function MapsPanelV2() {
           Activar
         </button>
       </div>
-      <p className="text-[10px] text-surface-400 text-center max-w-xs">
-        La clave se guarda solo en este navegador. No se envía a servidores de Loynek.
-      </p>
+      <p className="text-[10px] text-surface-400 text-center">La clave se guarda solo en este navegador.</p>
     </div>
   );
 
-  // ── Error de carga ─────────────────────────────────────────
   if (loadError) return (
     <div className="flex flex-col items-center justify-center h-full bg-red-50 rounded-xl border border-red-200 gap-3 p-6">
       <AlertTriangle className="w-8 h-8 text-red-400" />
       <p className="text-sm font-semibold text-red-700">Error al cargar Google Maps</p>
       <p className="text-xs text-red-600 text-center max-w-sm">{loadError}</p>
-      <button onClick={clearKey}
-        className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-300 rounded-lg hover:bg-red-100">
+      <button onClick={clearKey} className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-300 rounded-lg hover:bg-red-100">
         Cambiar API Key
       </button>
     </div>
   );
 
-  // ── Cargando ───────────────────────────────────────────────
   if (!mapsReady) return (
     <div className="flex items-center justify-center h-full bg-surface-50 rounded-xl border border-surface-200">
       <div className="text-center">
@@ -324,11 +410,37 @@ export default function MapsPanelV2() {
     </div>
   );
 
-  // ── Mapa ────────────────────────────────────────────────────
   return (
     <div className="relative w-full h-full">
-      {/* Contenedor del mapa */}
+      {/* Mapa */}
       <div ref={mapDivRef} className="w-full h-full rounded-xl overflow-hidden" />
+
+      {/* Canvas heatmap (superpuesto al mapa, pointer-events:none) */}
+      <canvas ref={heatCanvas}
+        style={{
+          position: "absolute", top: 0, left: 0, pointerEvents: "none",
+          borderRadius: "0.75rem", display: "none",
+        }} />
+
+      {/* Toggle mapa/calor/ambos */}
+      <div className="absolute top-3 right-3 z-10 flex gap-1 bg-white/90 backdrop-blur-sm
+                      border border-surface-200 rounded-xl p-1 shadow-sm">
+        {([
+          { id: "map",  icon: <Map className="w-3.5 h-3.5" />,   label: "Mapa" },
+          { id: "both", icon: <><Map className="w-3 h-3" /><Flame className="w-3 h-3" /></>, label: "Ambos" },
+          { id: "heat", icon: <Flame className="w-3.5 h-3.5" />, label: "Calor" },
+        ] as const).map(({ id, icon, label }) => (
+          <button key={id} onClick={() => setViewMode(id)}
+            title={label}
+            className={cn("flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
+              viewMode === id
+                ? "bg-brand-500 text-white shadow-sm"
+                : "text-surface-500 hover:bg-surface-100")}>
+            {icon}
+            <span className="hidden sm:inline">{label}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Filtros (esquina superior izquierda) */}
       <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
@@ -337,7 +449,7 @@ export default function MapsPanelV2() {
             onClick={() => setFilters(f => ({ ...f, [tipo]: !f[tipo] }))}
             className={cn(
               "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold",
-              "shadow-sm transition-all border backdrop-blur-sm",
+              "shadow-sm border backdrop-blur-sm transition-all",
               filters[tipo]
                 ? "bg-white/95 text-surface-800 border-surface-200"
                 : "bg-white/60 text-surface-400 border-surface-100"
@@ -354,11 +466,11 @@ export default function MapsPanelV2() {
         ))}
       </div>
 
-      {/* Leyenda (esquina inferior izquierda) */}
+      {/* Leyenda */}
       <div className="absolute bottom-3 left-3 z-10 bg-white/92 backdrop-blur-sm
                       border border-surface-200 rounded-xl px-3 py-2.5 shadow-sm">
         <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-2">Leyenda</p>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 mb-2">
           {(Object.entries(TIPO_V2) as [AnomalyTypeV2, typeof TIPO_V2[AnomalyTypeV2]][]).map(([tipo, cfg]) => (
             <div key={tipo} className="flex items-center gap-2">
               <div className="w-5 h-5 rounded-full border-2 border-white shadow-sm
@@ -370,17 +482,30 @@ export default function MapsPanelV2() {
             </div>
           ))}
         </div>
-        <div className="border-t border-surface-100 mt-2 pt-2">
+        <div className="border-t border-surface-100 pt-2">
           <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-1.5">Riesgo</p>
-          {[["ALTO", "#DC2626"], ["MEDIO", "#D97706"], ["BAJO", "#2563EB"]].map(([l, c]) => (
+          {[["ALTO","#DC2626"],["MEDIO","#D97706"],["BAJO","#2563EB"]].map(([l, c]) => (
             <div key={l} className="flex items-center gap-1.5 mb-1">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c }} />
               <span className="text-[10px] text-surface-600">{l}</span>
             </div>
           ))}
         </div>
+        {viewMode !== "map" && (
+          <div className="border-t border-surface-100 pt-2 mt-1">
+            <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-1">Mapa de calor</p>
+            <div className="flex gap-1 items-center">
+              {[["#2563EB","Bajo"],["#22c55e",""],["#DC2626","Alto"]].map(([c, l]) => (
+                <div key={c} className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
+                  {l && <span className="text-[9px] text-surface-500">{l}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <button onClick={clearKey}
-          className="text-[9px] text-surface-400 hover:text-brand-500 mt-2 block w-full text-left">
+          className="text-[9px] text-surface-400 hover:text-brand-500 mt-2 block">
           ⚙ Cambiar API Key
         </button>
       </div>

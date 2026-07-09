@@ -549,7 +549,7 @@ export default function GeoradarV2Page() {
               <div className="card p-4">
                 <h2 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3">Resultados</h2>
                 <div className="space-y-1.5 text-sm">
-                  <Row label="Huecos detectados" value={String(voids.length)} />
+                  <Row label="Anomalías detectadas" value={String(voids.length)} />
                   <Row label="Suministros" value={String(supplies.length)} />
                   <Row label="Vol. bruto" value={totBruto.toFixed(4) + " m³"} />
                   <Row label="Vol. neto" value={totNeto.toFixed(4) + " m³"} bold />
@@ -572,7 +572,7 @@ export default function GeoradarV2Page() {
                           a.type === "void" ? "border-red-400" : "border-amber-400",
                           store.selectedIndex === i ? "bg-brand-50" : "hover:bg-surface-50")}>
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold">{(a.type === "void" ? "H" : "S") + (i + 1)}</span>
+                          <span className="font-semibold">{(a.type === "void" ? "A" : a.type === "supply" ? "S" : "T") + (i + 1)}</span>
                           {a.risk && <span className={cn("badge text-[9px]", RISK_LABEL[a.risk].color)}>{RISK_LABEL[a.risk].label}</span>}
                         </div>
                         <span className="text-surface-500 font-mono">{a.dM}m · {a.wM}×{a.hM}m</span>
