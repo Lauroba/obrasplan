@@ -27,12 +27,7 @@ const TIPO_V2: Record<AnomalyTypeV2, { label: string; color: string; letra: stri
   pipe:    { label: "Tubería",    color: "#D97706", letra: "T" },
 };
 
-const RISK_COLOR: Record<string, string> = {
-  high: "#DC2626", med: "#D97706", low: "#2563EB",
-};
-const RISK_LABEL: Record<string, string> = {
-  high: "ALTO", med: "MEDIO", low: "BAJO",
-};
+
 
 const LS_KEY    = "georadar_v2_gmaps_key";
 const GMAPS_CB  = "__gmapsV2Ready__";
@@ -47,11 +42,9 @@ function classifyType(a: any): AnomalyTypeV2 {
   return "anomaly"; // void, anomaly y cualquier otro
 }
 
-function markerSVG(tipo: AnomalyTypeV2, label: string, risk: string): string {
+function markerSVG(tipo: AnomalyTypeV2, label: string): string {
   const cfg = TIPO_V2[tipo];
-  const dot = risk === "high"
-    ? `<circle cx="17" cy="17" r="15" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="3,2" opacity=".6"/>`
-    : "";
+  const dot = "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34">
     <circle cx="17" cy="17" r="15" fill="${cfg.color}" stroke="white" stroke-width="2.5"/>
     ${dot}
@@ -62,7 +55,6 @@ function markerSVG(tipo: AnomalyTypeV2, label: string, risk: string): string {
 
 function popupHTML(a: any, tipo: AnomalyTypeV2, idx: number): string {
   const cfg = TIPO_V2[tipo];
-  const rc  = RISK_COLOR[a.risk] || "#6B7280";
   return `<div style="font-family:system-ui,sans-serif;min-width:200px;padding:2px">
     <b style="color:${cfg.color};font-size:13px">${cfg.label} ${idx + 1}</b>
     <hr style="margin:6px 0;border-color:${cfg.color}30"/>
@@ -76,10 +68,6 @@ function popupHTML(a: any, tipo: AnomalyTypeV2, idx: number): string {
       ${(a.type === "void" || a.type === "anomaly")
         ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">Vol. neto</td>
            <td><b>${typeof a.vNet === "number" ? a.vNet.toFixed(4) : "—"} m³</b></td></tr>` : ""}
-      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Riesgo</td>
-          <td><b style="color:${rc}">${RISK_LABEL[a.risk] || a.risk}</b></td></tr>
-      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Confianza</td>
-          <td><b>${Math.round((a.conf ?? 0.7) * 100)}%</b></td></tr>
       ${a.gpt ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">GPS</td>
           <td style="font-size:10px"><b>${a.gpt.lat.toFixed(6)}, ${a.gpt.lon.toFixed(6)}</b></td></tr>` : ""}
     </table>
@@ -95,23 +83,19 @@ function drawHeatmap(
   anoms: any[],
   radiusPx = 40
 ) {
-  try {
   const W = canvas.width;
   const H = canvas.height;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, W, H);
   if (!anoms.length) return;
-  // Mapa debe estar listo con proyección disponible
-  if (!map || !map.getProjection || !map.getProjection()) return;
 
   // Solo anomalías con GPS
   const pts = anoms
     .filter(a => a.gpt && (a.type === "void" || a.type === "anomaly"))
     .map(a => {
       try {
-        const G    = (window as any).google?.maps;
-        if (!G) return null;
+        const G    = (window as any).google.maps;
         const proj = map.getProjection();
         const bounds = map.getBounds();
         if (!proj || !bounds) return null;
@@ -167,7 +151,6 @@ function drawHeatmap(
     img.data[idx] = r; img.data[idx+1] = g; img.data[idx+2] = b; img.data[idx+3] = a;
   }
   ctx.putImageData(img, 0, 0);
-  } catch (e) { /* heatmap no disponible aún */ }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -231,8 +214,7 @@ export default function MapsPanelV2() {
   // Inicializar mapa
   useEffect(() => {
     if (!mapsReady || !mapDivRef.current || mapInst.current) return;
-    const G = (window as any).google?.maps;
-    if (!G) return;
+    const G = (window as any).google.maps;
     const gps = store.gps as { lat: number; lon: number; dist?: number }[];
     const center = gps.length > 0
       ? { lat: gps[0].lat, lng: gps[0].lon }
@@ -260,12 +242,10 @@ export default function MapsPanelV2() {
 
     // Re-dibujar heatmap en cada movimiento del mapa
     heatListener.current = mapInst.current.addListener("idle", () => {
-      if (heatCanvas.current && mapInst.current) {
-        try {
-          heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
-          heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
-          drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
-        } catch { /* ignorar errores de heatmap en idle */ }
+      if (heatCanvas.current) {
+        heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+        heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+        drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,7 +284,7 @@ export default function MapsPanelV2() {
       const cfg   = TIPO_V2[tipo];
       const label = `${cfg.letra}${i + 1}`;
       const icon  = {
-        url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(markerSVG(tipo, label, a.risk))}`,
+        url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(markerSVG(tipo, label))}`,
         scaledSize: new G.Size(34, 34),
         anchor:     new G.Point(17, 17),
       };
@@ -312,7 +292,7 @@ export default function MapsPanelV2() {
         position: { lat: a.gpt.lat, lng: a.gpt.lon },
         map: mapInst.current, icon,
         title: `${cfg.label} ${i + 1}`,
-        zIndex: a.risk === "high" ? 100 : a.risk === "med" ? 50 : 10,
+        zIndex: 50,
         visible: viewMode !== "heat",
       });
       const iw = new G.InfoWindow({ content: popupHTML(a, tipo, i) });
@@ -325,12 +305,10 @@ export default function MapsPanelV2() {
     });
 
     // Redibujar heatmap
-    if (heatCanvas.current && mapInst.current) {
-      try {
-        heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
-        heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
-        drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
-      } catch { /* ignorar errores de heatmap */ }
+    if (heatCanvas.current) {
+      heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+      heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+      drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
     }
   }, [mapsReady, store.anoms, store.gps, filters, viewMode]);
 
@@ -492,15 +470,7 @@ export default function MapsPanelV2() {
             </div>
           ))}
         </div>
-        <div className="border-t border-surface-100 pt-2">
-          <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-1.5">Riesgo</p>
-          {[["ALTO","#DC2626"],["MEDIO","#D97706"],["BAJO","#2563EB"]].map(([l, c]) => (
-            <div key={l} className="flex items-center gap-1.5 mb-1">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c }} />
-              <span className="text-[10px] text-surface-600">{l}</span>
-            </div>
-          ))}
-        </div>
+
         {viewMode !== "map" && (
           <div className="border-t border-surface-100 pt-2 mt-1">
             <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-1">Mapa de calor</p>

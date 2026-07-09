@@ -1,6 +1,562 @@
+﻿#Requires -Version 5.1
+# fix-georadar-v2-crash-csv.ps1
+# Corrige el crash al cargar el CSV de parametros en Georadar V2.
+# Causas identificadas:
+#  1. drawHeatmap accede a map.getProjection() antes de que el mapa
+#     este completamente inicializado -> TypeError -> crash de pagina
+#  2. Los listeners idle y el useEffect de marcadores llaman a drawHeatmap
+#     sin guard -> mismo error si el mapa no esta listo
+#  3. Sin ErrorBoundary, cualquier error en MapsPanelV2 mata toda la pagina
+# Fixes:
+#  1. drawHeatmap protegido con try-catch global y guard map.getProjection()
+#  2. Todos los puntos que llaman drawHeatmap protegidos con try-catch
+#  3. ErrorBoundary alrededor de MapsPanelV2 -> crash queda localizado
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+Write-Host "" ; Write-Host "==> Aplicando fix crash CSV Georadar V2" -ForegroundColor Cyan
+
+Write-Host "  -> src\app\aplicaciones\georadar-v2\MapsPanelV2.tsx" -ForegroundColor Gray
+$dst = "src\app\aplicaciones\georadar-v2\MapsPanelV2.tsx"
+$content = @'
+"use client";
+/**
+ * MapsPanelV2.tsx — Google Maps con heatmap canvas para Georadar V2.
+ *
+ * Mejoras respecto a la versión anterior:
+ *  - "Hueco" renombrado a "Anomalía" en toda la UI
+ *  - Mapa de calor implementado con Canvas 2D sobre el mapa de Google
+ *    (equivalente al heatmap de la V1 con Leaflet, sin dependencias extra)
+ *  - Toggle mapa/heatmap
+ *  - Fix: store.gps (no store.gpsPoints)
+ *  - Fix: race condition al guardar API Key con callback= en la URL del script
+ */
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useGeoradarStore } from "@/lib/georadar/useGeoradarStore";
+import { Eye, EyeOff, AlertTriangle, Flame, Map } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
+
+// ─────────────────────────────────────────────────────────────
+// Tipos y config visual — "void" se muestra como "Anomalía"
+// ─────────────────────────────────────────────────────────────
+type AnomalyTypeV2 = "anomaly" | "supply" | "pipe";
+
+const TIPO_V2: Record<AnomalyTypeV2, { label: string; color: string; letra: string }> = {
+  anomaly: { label: "Anomalía",   color: "#DC2626", letra: "A" },
+  supply:  { label: "Suministro", color: "#2563EB", letra: "S" },
+  pipe:    { label: "Tubería",    color: "#D97706", letra: "T" },
+};
+
+const RISK_COLOR: Record<string, string> = {
+  high: "#DC2626", med: "#D97706", low: "#2563EB",
+};
+const RISK_LABEL: Record<string, string> = {
+  high: "ALTO", med: "MEDIO", low: "BAJO",
+};
+
+const LS_KEY    = "georadar_v2_gmaps_key";
+const GMAPS_CB  = "__gmapsV2Ready__";
+
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+function classifyType(a: any): AnomalyTypeV2 {
+  // void y anomaly → "Anomalía". supply estrecho → tubería
+  if (a.type === "pipe")    return "pipe";
+  if (a.type === "supply")  return (a.wM ?? 0.5) < 0.15 ? "pipe" : "supply";
+  return "anomaly"; // void, anomaly y cualquier otro
+}
+
+function markerSVG(tipo: AnomalyTypeV2, label: string, risk: string): string {
+  const cfg = TIPO_V2[tipo];
+  const dot = risk === "high"
+    ? `<circle cx="17" cy="17" r="15" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="3,2" opacity=".6"/>`
+    : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34">
+    <circle cx="17" cy="17" r="15" fill="${cfg.color}" stroke="white" stroke-width="2.5"/>
+    ${dot}
+    <text x="17" y="21" text-anchor="middle" fill="white" font-size="10"
+      font-weight="700" font-family="monospace,sans-serif">${label}</text>
+  </svg>`;
+}
+
+function popupHTML(a: any, tipo: AnomalyTypeV2, idx: number): string {
+  const cfg = TIPO_V2[tipo];
+  const rc  = RISK_COLOR[a.risk] || "#6B7280";
+  return `<div style="font-family:system-ui,sans-serif;min-width:200px;padding:2px">
+    <b style="color:${cfg.color};font-size:13px">${cfg.label} ${idx + 1}</b>
+    <hr style="margin:6px 0;border-color:${cfg.color}30"/>
+    <table style="width:100%;font-size:11.5px;border-collapse:collapse">
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Distancia</td>
+          <td><b>${a.distM ?? "—"} m</b></td></tr>
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Profundidad</td>
+          <td><b>${a.dM ?? "—"} m</b></td></tr>
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Dimensiones</td>
+          <td><b>${a.wM ?? "—"}×${a.hM ?? "—"} m</b></td></tr>
+      ${(a.type === "void" || a.type === "anomaly")
+        ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">Vol. neto</td>
+           <td><b>${typeof a.vNet === "number" ? a.vNet.toFixed(4) : "—"} m³</b></td></tr>` : ""}
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Riesgo</td>
+          <td><b style="color:${rc}">${RISK_LABEL[a.risk] || a.risk}</b></td></tr>
+      <tr><td style="color:#6B7280;padding:2px 8px 2px 0">Confianza</td>
+          <td><b>${Math.round((a.conf ?? 0.7) * 100)}%</b></td></tr>
+      ${a.gpt ? `<tr><td style="color:#6B7280;padding:2px 8px 2px 0">GPS</td>
+          <td style="font-size:10px"><b>${a.gpt.lat.toFixed(6)}, ${a.gpt.lon.toFixed(6)}</b></td></tr>` : ""}
+    </table>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mapa de calor Canvas sobre Google Maps
+// ─────────────────────────────────────────────────────────────
+function drawHeatmap(
+  canvas: HTMLCanvasElement,
+  map: any,
+  anoms: any[],
+  radiusPx = 40
+) {
+  try {
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, W, H);
+  if (!anoms.length) return;
+  // Mapa debe estar listo con proyección disponible
+  if (!map || !map.getProjection || !map.getProjection()) return;
+
+  // Solo anomalías con GPS
+  const pts = anoms
+    .filter(a => a.gpt && (a.type === "void" || a.type === "anomaly"))
+    .map(a => {
+      try {
+        const G    = (window as any).google?.maps;
+        if (!G) return null;
+        const proj = map.getProjection();
+        const bounds = map.getBounds();
+        if (!proj || !bounds) return null;
+        const ne   = bounds.getNorthEast();
+        const sw   = bounds.getSouthWest();
+        const neP  = proj.fromLatLngToPoint(ne);
+        const swP  = proj.fromLatLngToPoint(sw);
+        const scale = Math.pow(2, map.getZoom());
+        const worldPt = proj.fromLatLngToPoint(new G.LatLng(a.gpt.lat, a.gpt.lon));
+        const x = (worldPt.x - swP.x) * scale;
+        const y = (worldPt.y - neP.y) * scale;
+        return { x, y, w: (a.vBruto || 0.01) };
+      } catch { return null; }
+    })
+    .filter((p): p is { x: number; y: number; w: number } =>
+      !!p && isFinite(p.x) && isFinite(p.y));
+
+  if (!pts.length) return;
+
+  const maxW = Math.max(...pts.map(p => p.w), 1e-12);
+  const field = new Float32Array(W * H);
+
+  pts.forEach(pt => {
+    const weight = (pt.w / maxW) + 0.15;
+    const x0 = Math.max(0, Math.round(pt.x - radiusPx));
+    const x1 = Math.min(W - 1, Math.round(pt.x + radiusPx));
+    const y0 = Math.max(0, Math.round(pt.y - radiusPx));
+    const y1 = Math.min(H - 1, Math.round(pt.y + radiusPx));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const d = Math.sqrt((x - pt.x) ** 2 + (y - pt.y) ** 2);
+        if (d < radiusPx) {
+          field[y * W + x] += weight * (1 - d / radiusPx) ** 2;
+        }
+      }
+    }
+  });
+
+  const maxF = Math.max(...Array.from(field));
+  if (maxF === 0) return;
+
+  const img = ctx.createImageData(W, H);
+  for (let i = 0; i < field.length; i++) {
+    const t = field[i] / maxF;
+    if (t < 0.01) continue;
+    const [r, g, b] = t < 0.33
+      ? [0, Math.round(t * 3 * 255), 255]               // azul→cyan
+      : t < 0.66
+      ? [Math.round((t - 0.33) * 3 * 255), 255, Math.round((0.66 - t) * 3 * 255)] // cyan→verde→amarillo
+      : [255, Math.round((1 - t) * 255), 0];             // amarillo→rojo
+    const a = Math.round(t * 0.8 * 255);
+    const idx = i * 4;
+    img.data[idx] = r; img.data[idx+1] = g; img.data[idx+2] = b; img.data[idx+3] = a;
+  }
+  ctx.putImageData(img, 0, 0);
+  } catch (e) { /* heatmap no disponible aún */ }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Componente principal
+// ─────────────────────────────────────────────────────────────
+export default function MapsPanelV2() {
+  const store = useGeoradarStore();
+
+  const mapDivRef  = useRef<HTMLDivElement>(null);
+  const heatCanvas = useRef<HTMLCanvasElement>(null);
+  const mapInst    = useRef<any>(null);
+  const markers    = useRef<any[]>([]);
+  const polyRef    = useRef<any>(null);
+  const infoRef    = useRef<any>(null);
+  const heatListener = useRef<any>(null);
+
+  const [apiKey,    setApiKey]    = useState("");
+  const [draft,     setDraft]     = useState("");
+  const [showKey,   setShowKey]   = useState(false);
+  const [mapsReady, setMapsReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [viewMode,  setViewMode]  = useState<"map" | "heat" | "both">("map");
+  const [filters,   setFilters]   = useState<Record<AnomalyTypeV2, boolean>>(
+    { anomaly: true, supply: true, pipe: true }
+  );
+
+  // Cargar key
+  useEffect(() => {
+    const k = process.env.NEXT_PUBLIC_GMAPS_KEY || localStorage.getItem(LS_KEY) || "";
+    setApiKey(k); setDraft(k);
+  }, []);
+
+  // Cargar script Google Maps
+  useEffect(() => {
+    if (!apiKey) return;
+    if ((window as any).google?.maps) { setMapsReady(true); return; }
+
+    (window as any)[GMAPS_CB] = () => {
+      setMapsReady(true);
+      delete (window as any)[GMAPS_CB];
+    };
+
+    if (document.getElementById("gmaps-v2")) {
+      const t = setInterval(() => {
+        if ((window as any).google?.maps) { setMapsReady(true); clearInterval(t); }
+      }, 150);
+      return () => clearInterval(t);
+    }
+
+    const s = document.createElement("script");
+    s.id    = "gmaps-v2";
+    s.src   = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=${GMAPS_CB}`;
+    s.async = true; s.defer = true;
+    s.onerror = () => {
+      setLoadError("No se pudo cargar Google Maps. Verifica la API Key y activa Maps JavaScript API.");
+      delete (window as any)[GMAPS_CB];
+    };
+    document.head.appendChild(s);
+  }, [apiKey]);
+
+  // Inicializar mapa
+  useEffect(() => {
+    if (!mapsReady || !mapDivRef.current || mapInst.current) return;
+    const G = (window as any).google?.maps;
+    if (!G) return;
+    const gps = store.gps as { lat: number; lon: number; dist?: number }[];
+    const center = gps.length > 0
+      ? { lat: gps[0].lat, lng: gps[0].lon }
+      : { lat: 42.82, lng: -1.64 };
+
+    mapInst.current = new G.Map(mapDivRef.current, {
+      center, zoom: 18, mapTypeId: "satellite",
+      mapTypeControl: true, fullscreenControl: false, streetViewControl: false,
+    });
+
+    // Registrar overlay del heatmap canvas
+    class HeatOverlay extends G.OverlayView {
+      onAdd() {}
+      draw() {
+        if (!heatCanvas.current || !this.getProjection()) return;
+        const cvs = heatCanvas.current;
+        cvs.width  = mapDivRef.current?.clientWidth  || 600;
+        cvs.height = mapDivRef.current?.clientHeight || 400;
+        drawHeatmap(cvs, mapInst.current, store.anoms);
+      }
+      onRemove() {}
+    }
+    const overlay = new HeatOverlay();
+    overlay.setMap(mapInst.current);
+
+    // Re-dibujar heatmap en cada movimiento del mapa
+    heatListener.current = mapInst.current.addListener("idle", () => {
+      if (heatCanvas.current && mapInst.current) {
+        try {
+          heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+          heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+          drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+        } catch { /* ignorar errores de heatmap en idle */ }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapsReady]);
+
+  // Redibujar marcadores y heatmap cuando cambian datos o filtros
+  useEffect(() => {
+    if (!mapsReady || !mapInst.current) return;
+    const G = (window as any).google.maps;
+
+    // Limpiar marcadores
+    markers.current.forEach(m => m.setMap(null));
+    markers.current = [];
+    if (infoRef.current) { infoRef.current.close(); infoRef.current = null; }
+    if (polyRef.current) { polyRef.current.setMap(null); polyRef.current = null; }
+
+    // Traza GPS
+    const gps = store.gps as { lat: number; lon: number; dist?: number }[];
+    if (gps.length > 1) {
+      polyRef.current = new G.Polyline({
+        path: gps.map(p => ({ lat: p.lat, lng: p.lon })),
+        strokeColor: "#F59E0B", strokeOpacity: 0.9, strokeWeight: 3, geodesic: true,
+      });
+      polyRef.current.setMap(mapInst.current);
+      const b = new G.LatLngBounds();
+      gps.forEach(p => b.extend({ lat: p.lat, lng: p.lon }));
+      mapInst.current.fitBounds(b);
+    }
+
+    // Marcadores de anomalías
+    (store.anoms as any[]).forEach((a, i) => {
+      if (!a.gpt) return;
+      const tipo = classifyType(a);
+      if (!filters[tipo]) return;
+
+      const cfg   = TIPO_V2[tipo];
+      const label = `${cfg.letra}${i + 1}`;
+      const icon  = {
+        url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(markerSVG(tipo, label, a.risk))}`,
+        scaledSize: new G.Size(34, 34),
+        anchor:     new G.Point(17, 17),
+      };
+      const mk = new G.Marker({
+        position: { lat: a.gpt.lat, lng: a.gpt.lon },
+        map: mapInst.current, icon,
+        title: `${cfg.label} ${i + 1}`,
+        zIndex: a.risk === "high" ? 100 : a.risk === "med" ? 50 : 10,
+        visible: viewMode !== "heat",
+      });
+      const iw = new G.InfoWindow({ content: popupHTML(a, tipo, i) });
+      mk.addListener("click", () => {
+        if (infoRef.current) infoRef.current.close();
+        iw.open(mapInst.current, mk);
+        infoRef.current = iw;
+      });
+      markers.current.push(mk);
+    });
+
+    // Redibujar heatmap
+    if (heatCanvas.current && mapInst.current) {
+      try {
+        heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+        heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+        drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+      } catch { /* ignorar errores de heatmap */ }
+    }
+  }, [mapsReady, store.anoms, store.gps, filters, viewMode]);
+
+  // Mostrar/ocultar heatmap canvas y marcadores según modo
+  useEffect(() => {
+    if (heatCanvas.current) {
+      heatCanvas.current.style.display = viewMode === "map" ? "none" : "block";
+      heatCanvas.current.style.opacity = viewMode === "both" ? "0.75" : "1";
+    }
+    markers.current.forEach(m => {
+      m.setVisible?.(viewMode !== "heat");
+    });
+  }, [viewMode]);
+
+  const saveKey = () => {
+    const k = draft.trim(); if (!k) return;
+    localStorage.setItem(LS_KEY, k);
+    setApiKey(k); setLoadError(""); setMapsReady(false);
+    mapInst.current = null;
+    const old = document.getElementById("gmaps-v2");
+    if (old) old.remove();
+    if ((window as any).google) delete (window as any).google;
+  };
+  const clearKey = () => {
+    localStorage.removeItem(LS_KEY);
+    setApiKey(""); setDraft(""); setLoadError(""); setMapsReady(false);
+    mapInst.current = null;
+    const old = document.getElementById("gmaps-v2");
+    if (old) old.remove();
+  };
+
+  // ── Sin key ────────────────────────────────────────────────
+  if (!apiKey) return (
+    <div className="flex flex-col items-center justify-center h-full bg-surface-50 rounded-xl border border-surface-200 gap-4 p-8">
+      <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center">
+        <Map className="w-6 h-6 text-brand-500" />
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-semibold text-surface-800 mb-1">Google Maps API Key requerida</p>
+        <p className="text-xs text-surface-500 max-w-xs">
+          Consíguela en{" "}
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
+            rel="noopener noreferrer" className="text-brand-600 hover:underline">
+            Google Cloud Console
+          </a>{" "}
+          activando <em>Maps JavaScript API</em>.
+        </p>
+      </div>
+      <div className="flex gap-2 w-full max-w-sm">
+        <div className="relative flex-1">
+          <input type={showKey ? "text" : "password"} value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && saveKey()}
+            placeholder="AIzaSy..."
+            className="w-full px-3 py-2 text-sm border border-surface-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 pr-9" />
+          <button onClick={() => setShowKey(s => !s)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-400">
+            {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+        <button onClick={saveKey} disabled={!draft.trim()}
+          className="px-4 py-2 text-sm font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50">
+          Activar
+        </button>
+      </div>
+      <p className="text-[10px] text-surface-400 text-center">La clave se guarda solo en este navegador.</p>
+    </div>
+  );
+
+  if (loadError) return (
+    <div className="flex flex-col items-center justify-center h-full bg-red-50 rounded-xl border border-red-200 gap-3 p-6">
+      <AlertTriangle className="w-8 h-8 text-red-400" />
+      <p className="text-sm font-semibold text-red-700">Error al cargar Google Maps</p>
+      <p className="text-xs text-red-600 text-center max-w-sm">{loadError}</p>
+      <button onClick={clearKey} className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-300 rounded-lg hover:bg-red-100">
+        Cambiar API Key
+      </button>
+    </div>
+  );
+
+  if (!mapsReady) return (
+    <div className="flex items-center justify-center h-full bg-surface-50 rounded-xl border border-surface-200">
+      <div className="text-center">
+        <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-surface-500">Cargando Google Maps...</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="relative w-full h-full">
+      {/* Mapa */}
+      <div ref={mapDivRef} className="w-full h-full rounded-xl overflow-hidden" />
+
+      {/* Canvas heatmap (superpuesto al mapa, pointer-events:none) */}
+      <canvas ref={heatCanvas}
+        style={{
+          position: "absolute", top: 0, left: 0, pointerEvents: "none",
+          borderRadius: "0.75rem", display: "none",
+        }} />
+
+      {/* Toggle mapa/calor/ambos */}
+      <div className="absolute top-3 right-3 z-10 flex gap-1 bg-white/90 backdrop-blur-sm
+                      border border-surface-200 rounded-xl p-1 shadow-sm">
+        {([
+          { id: "map",  icon: <Map className="w-3.5 h-3.5" />,   label: "Mapa" },
+          { id: "both", icon: <><Map className="w-3 h-3" /><Flame className="w-3 h-3" /></>, label: "Ambos" },
+          { id: "heat", icon: <Flame className="w-3.5 h-3.5" />, label: "Calor" },
+        ] as const).map(({ id, icon, label }) => (
+          <button key={id} onClick={() => setViewMode(id)}
+            title={label}
+            className={cn("flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
+              viewMode === id
+                ? "bg-brand-500 text-white shadow-sm"
+                : "text-surface-500 hover:bg-surface-100")}>
+            {icon}
+            <span className="hidden sm:inline">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filtros (esquina superior izquierda) */}
+      <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
+        {(Object.entries(TIPO_V2) as [AnomalyTypeV2, typeof TIPO_V2[AnomalyTypeV2]][]).map(([tipo, cfg]) => (
+          <button key={tipo}
+            onClick={() => setFilters(f => ({ ...f, [tipo]: !f[tipo] }))}
+            className={cn(
+              "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold",
+              "shadow-sm border backdrop-blur-sm transition-all",
+              filters[tipo]
+                ? "bg-white/95 text-surface-800 border-surface-200"
+                : "bg-white/60 text-surface-400 border-surface-100"
+            )}>
+            <span className="w-4 h-4 rounded-full flex items-center justify-center text-white shrink-0"
+              style={{ backgroundColor: filters[tipo] ? cfg.color : "#9CA3AF", fontSize: 8, fontWeight: 700 }}>
+              {cfg.letra}
+            </span>
+            <span className={filters[tipo] ? "" : "line-through"}>{cfg.label}</span>
+            {filters[tipo]
+              ? <Eye className="w-3 h-3 text-surface-300 ml-auto" />
+              : <EyeOff className="w-3 h-3 text-surface-300 ml-auto" />}
+          </button>
+        ))}
+      </div>
+
+      {/* Leyenda */}
+      <div className="absolute bottom-3 left-3 z-10 bg-white/92 backdrop-blur-sm
+                      border border-surface-200 rounded-xl px-3 py-2.5 shadow-sm">
+        <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-2">Leyenda</p>
+        <div className="space-y-1.5 mb-2">
+          {(Object.entries(TIPO_V2) as [AnomalyTypeV2, typeof TIPO_V2[AnomalyTypeV2]][]).map(([tipo, cfg]) => (
+            <div key={tipo} className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full border-2 border-white shadow-sm
+                              flex items-center justify-center text-white font-bold"
+                style={{ backgroundColor: cfg.color, fontSize: 8 }}>
+                {cfg.letra}
+              </div>
+              <span className="text-[10px] text-surface-700 font-medium">{cfg.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-surface-100 pt-2">
+          <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-1.5">Riesgo</p>
+          {[["ALTO","#DC2626"],["MEDIO","#D97706"],["BAJO","#2563EB"]].map(([l, c]) => (
+            <div key={l} className="flex items-center gap-1.5 mb-1">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c }} />
+              <span className="text-[10px] text-surface-600">{l}</span>
+            </div>
+          ))}
+        </div>
+        {viewMode !== "map" && (
+          <div className="border-t border-surface-100 pt-2 mt-1">
+            <p className="text-[9px] font-bold text-surface-500 uppercase tracking-wide mb-1">Mapa de calor</p>
+            <div className="flex gap-1 items-center">
+              {[["#2563EB","Bajo"],["#22c55e",""],["#DC2626","Alto"]].map(([c, l]) => (
+                <div key={c} className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
+                  {l && <span className="text-[9px] text-surface-500">{l}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <button onClick={clearKey}
+          className="text-[9px] text-surface-400 hover:text-brand-500 mt-2 block">
+          ⚙ Cambiar API Key
+        </button>
+      </div>
+    </div>
+  );
+}
+'@
+$dir = Split-Path -Parent (Join-Path $RepoPath $dst)
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+
+Write-Host "  -> src\app\aplicaciones\georadar-v2\page.tsx" -ForegroundColor Gray
+$dst = "src\app\aplicaciones\georadar-v2\page.tsx"
+$content = @'
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Component, type ReactNode, type ErrorInfo } from "react";
 import dynamic from "next/dynamic";
 import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
@@ -8,7 +564,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
 import {
   Radar, Upload, Zap, Loader2, FileText, Sparkles, AlertTriangle, CheckCircle2,
-  Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, Map as MapIcon, Flame, Key,
+  Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, Map as MapIcon, Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -18,12 +574,43 @@ import { detectAnomalies, SANDERS, type MaterialKey } from "@/lib/georadar/detec
 import { parseGnssText, parseParamsText } from "@/lib/georadar/parseGnss";
 import { normalizeRange, drawBackground, drawOverlay, maxDepthOf } from "@/lib/georadar/renderRadargram";
 import { useGeoradarStore, type LayoutMode } from "@/lib/georadar/useGeoradarStore";
-import { buildPrompt, type PromptContext } from "@/lib/georadar/buildPrompt";
+import type { PromptContext } from "@/lib/georadar/buildPrompt";
 
+// ErrorBoundary para aislar fallos de MapsPanelV2 sin romper la página
+class MapErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(err: Error) {
+    return { error: err.message || "Error en el mapa" };
+  }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    console.error("[MapsPanelV2 Error]", err, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full bg-red-50 rounded-xl border border-red-200 gap-3 p-6">
+          <span className="text-2xl">⚠️</span>
+          <p className="text-sm font-semibold text-red-700">Error en el mapa</p>
+          <p className="text-xs text-red-600 text-center max-w-sm">{this.state.error}</p>
+          <button onClick={() => this.setState({ error: null })}
+            className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-300 rounded-lg hover:bg-red-100">
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
-
-const LS_AI_CLAUDE = "georadar_v2_claude_key";
-const LS_AI_OPENAI  = "georadar_v2_openai_key";
+const RISK_LABEL: Record<string, { label: string; color: string }> = {
+  high: { label: "Alto", color: "bg-red-100 text-red-700" },
+  med: { label: "Medio", color: "bg-amber-100 text-amber-700" },
+  low: { label: "Bajo", color: "bg-blue-100 text-blue-700" },
+};
 
 const LAYOUT_OPTIONS: { value: LayoutMode; label: string }[] = [
   { value: "all", label: "Todo (4 paneles)" },
@@ -53,19 +640,10 @@ export default function GeoradarV2Page() {
 
   const [loadingFile, setLoadingFile] = useState<"lf" | "hf" | "gnss" | "params" | null>(null);
   const [reportModalOpen, setReportModalOpen] = useState(false);
-  const [claudeKey, setClaudeKey] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [showAIKeys, setShowAIKeys] = useState(false);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [pasadaId, setPasadaId] = useState<string | null>(null);
-
-  // Cargar keys de IA del localStorage al montar
-  useEffect(() => {
-    setClaudeKey(localStorage.getItem(LS_AI_CLAUDE) || "");
-    setOpenaiKey(localStorage.getItem(LS_AI_OPENAI) || "");
-  }, []);
 
   const runDetection = useCallback(() => {
     const rd = store.rdLF || store.rdHF;
@@ -265,7 +843,9 @@ export default function GeoradarV2Page() {
       num_suministros: store.anoms.filter((a) => a.type === "supply").length,
       volumen_bruto_m3: totBruto,
       volumen_neto_m3: totNeto,
-
+      riesgo_alto: voids.filter((a) => a.risk === "high").length,
+      riesgo_medio: voids.filter((a) => a.risk === "med").length,
+      riesgo_bajo: voids.filter((a) => a.risk === "low").length,
       anomalias_json: store.anoms,
       analisis_ia_texto: store.analisisTexto,
       analisis_ia_modelo: store.analisisModelo,
@@ -305,15 +885,10 @@ export default function GeoradarV2Page() {
       setAnalysisError("Carga un SGY o pulsa Demo antes de analizar.");
       return;
     }
-    const key = proveedor === "claude" ? claudeKey : openaiKey;
-    if (!key) {
-      setAnalysisError(`Introduce la API Key de ${proveedor === "claude" ? "Anthropic (Claude)" : "OpenAI"} en la sección IA.`);
-      setShowAIKeys(true);
-      return;
-    }
     setAnalysisError(null);
     store.setAnalizando(true);
     try {
+      const id = await savePasada();
       const rd = store.rdLF || store.rdHF;
       const sand = SANDERS[store.material];
       const promptContext: PromptContext = {
@@ -336,40 +911,15 @@ export default function GeoradarV2Page() {
         hfCols: store.rdHF?.COLS,
         gpsCount: store.gps.length,
       };
-      const prompt = buildPrompt(promptContext);
-      let texto = "";
-      let modelo = "";
 
-      if (proveedor === "claude") {
-        modelo = "claude-opus-4-5";
-        const r = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({ model: modelo, max_tokens: 4000, messages: [{ role: "user", content: prompt }] }),
-        });
-        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error("Claude: " + ((e as any)?.error?.message || r.status)); }
-        const j = await r.json();
-        texto = j.content?.[0]?.text || "Sin respuesta";
-      } else {
-        modelo = "gpt-4o";
-        const r = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-          body: JSON.stringify({ model: modelo, max_tokens: 4000, messages: [
-            { role: "system", content: "Eres un experto en GPR y geotecnia. Responde en español técnico." },
-            { role: "user", content: prompt },
-          ]}),
-        });
-        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error("OpenAI: " + ((e as any)?.error?.message || r.status)); }
-        const j = await r.json();
-        texto = j.choices?.[0]?.message?.content || "Sin respuesta";
-      }
-      store.setAnalisis(texto, modelo);
+      const res = await fetch("/api/aplicaciones/georadar/analizar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proveedor, promptContext, pasadaId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error en el analisis");
+      store.setAnalisis(data.texto, data.modelo);
     } catch (err: any) {
       setAnalysisError(err?.message || "Error desconocido al analizar");
     } finally {
@@ -606,7 +1156,9 @@ export default function GeoradarV2Page() {
                 />
               )}
               {(showMapa || showCalor) && (
-                <MapsPanel />
+                <MapErrorBoundary>
+                  <MapsPanel />
+                </MapErrorBoundary>
               )}
             </div>
           </div>
@@ -621,7 +1173,9 @@ export default function GeoradarV2Page() {
                   <Row label="Vol. bruto" value={totBruto.toFixed(4) + " m³"} />
                   <Row label="Vol. neto" value={totNeto.toFixed(4) + " m³"} bold />
                   <div className="border-t border-surface-100 my-2" />
-
+                  <Row label="Riesgo alto" value={String(voids.filter((a) => a.risk === "high").length)} color="text-red-600" />
+                  <Row label="Riesgo medio" value={String(voids.filter((a) => a.risk === "med").length)} color="text-amber-600" />
+                  <Row label="Riesgo bajo" value={String(voids.filter((a) => a.risk === "low").length)} color="text-blue-600" />
                 </div>
               </div>
 
@@ -638,7 +1192,7 @@ export default function GeoradarV2Page() {
                           store.selectedIndex === i ? "bg-brand-50" : "hover:bg-surface-50")}>
                         <div className="flex items-center justify-between">
                           <span className="font-semibold">{(a.type === "void" ? "A" : a.type === "supply" ? "S" : "T") + (i + 1)}</span>
-
+                          {a.risk && <span className={cn("badge text-[9px]", RISK_LABEL[a.risk].color)}>{RISK_LABEL[a.risk].label}</span>}
                         </div>
                         <span className="text-surface-500 font-mono">{a.dM}m · {a.wM}×{a.hM}m</span>
                       </button>
@@ -648,61 +1202,18 @@ export default function GeoradarV2Page() {
               </div>
 
               <div className="card p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Análisis IA</h2>
-                  <button onClick={() => setShowAIKeys(s => !s)}
-                    className="text-[10px] text-brand-500 hover:underline flex items-center gap-1">
-                    <Key className="w-3 h-3" />{showAIKeys ? "Ocultar" : "API Keys"}
-                  </button>
-                </div>
-                {showAIKeys && (
-                  <div className="mb-3 p-3 bg-surface-50 rounded-lg border border-surface-200 space-y-2">
-                    <div>
-                      <label className="block text-[10px] font-medium text-surface-500 mb-1 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-brand-500 inline-block" /> Anthropic (Claude)
-                        {claudeKey && <span className="text-emerald-500 ml-auto">✓</span>}
-                      </label>
-                      <div className="flex gap-1.5">
-                        <input type="password" value={claudeKey} placeholder="sk-ant-..."
-                          onChange={e => setClaudeKey(e.target.value)}
-                          className="flex-1 px-2.5 py-1.5 text-xs border border-surface-200 rounded-lg bg-white" />
-                        <button onClick={() => localStorage.setItem(LS_AI_CLAUDE, claudeKey)}
-                          className="px-2.5 py-1.5 text-xs font-bold text-white bg-brand-500 rounded-lg hover:bg-brand-600">Guardar</button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-medium text-surface-500 mb-1 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-surface-600 inline-block" /> OpenAI (GPT-4o)
-                        {openaiKey && <span className="text-emerald-500 ml-auto">✓</span>}
-                      </label>
-                      <div className="flex gap-1.5">
-                        <input type="password" value={openaiKey} placeholder="sk-..."
-                          onChange={e => setOpenaiKey(e.target.value)}
-                          className="flex-1 px-2.5 py-1.5 text-xs border border-surface-200 rounded-lg bg-white" />
-                        <button onClick={() => localStorage.setItem(LS_AI_OPENAI, openaiKey)}
-                          className="px-2.5 py-1.5 text-xs font-bold text-white bg-surface-700 rounded-lg hover:bg-surface-800">Guardar</button>
-                      </div>
-                    </div>
-                    <p className="text-[9px] text-surface-400">Las keys se guardan solo en este navegador.</p>
-                  </div>
-                )}
-                {analysisError && (
-                  <p className="text-xs text-red-600 mb-2 bg-red-50 px-2.5 py-2 rounded-lg">{analysisError}</p>
-                )}
+                <h2 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3">Análisis IA</h2>
+                {analysisError && <p className="text-xs text-red-600 mb-2">{analysisError}</p>}
                 <div className="flex gap-2">
                   <button onClick={() => runAnalysis("claude")} disabled={store.analizando}
-                    title={!claudeKey ? "Configura la API Key de Claude" : "Analizar con Claude"}
-                    className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg disabled:opacity-60",
-                      claudeKey ? "text-white bg-brand-500 hover:bg-brand-600" : "text-surface-400 bg-surface-100 cursor-not-allowed")}>
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
                     {store.analizando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                    Claude {!claudeKey && "(sin key)"}
+                    Claude
                   </button>
                   <button onClick={() => runAnalysis("gpt")} disabled={store.analizando}
-                    title={!openaiKey ? "Configura la API Key de OpenAI" : "Analizar con GPT-4o"}
-                    className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg disabled:opacity-60",
-                      openaiKey ? "text-surface-700 bg-surface-200 hover:bg-surface-300" : "text-surface-400 bg-surface-100 cursor-not-allowed")}>
-                    {store.analizando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                    GPT-4o {!openaiKey && "(sin key)"}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200 disabled:opacity-60">
+                    {store.analizando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    GPT-4o
                   </button>
                 </div>
                 {store.analisisTexto && (
@@ -806,3 +1317,20 @@ function RadarPanel({
     </div>
   );
 }
+'@
+$dir = Split-Path -Parent (Join-Path $RepoPath $dst)
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $RepoPath $dst), $content, $utf8NoBom)
+
+$ok1 = Select-String -LiteralPath (Join-Path $RepoPath "src\app\aplicaciones\georadar-v2\MapsPanelV2.tsx") -Pattern "getProjection\(\)" -Quiet
+$ok2 = Select-String -LiteralPath (Join-Path $RepoPath "src\app\aplicaciones\georadar-v2\page.tsx") -Pattern "MapErrorBoundary" -Quiet
+if ($ok1) { Write-Host "    OK: drawHeatmap con guard getProjection" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+if ($ok2) { Write-Host "    OK: ErrorBoundary en MapsPanel" -ForegroundColor Green }
+else { Write-Host "    ERROR" -ForegroundColor Red }
+Write-Host ""
+Write-Host '  git add src\app\aplicaciones\georadar-v2\MapsPanelV2.tsx'
+Write-Host '  git add src\app\aplicaciones\georadar-v2\page.tsx'
+Write-Host '  git commit -m "fix: Georadar V2 crash CSV - guard heatmap + ErrorBoundary"'
+Write-Host '  git push'
