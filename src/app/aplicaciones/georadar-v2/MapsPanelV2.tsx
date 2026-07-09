@@ -165,7 +165,7 @@ export default function MapsPanelV2() {
   useEffect(() => {
     if (!mapsReady || !mapDivRef.current || mapInst.current) return;
     const G = (window as any).google.maps;
-    const gps = store.gpsPoints;
+    const gps = store.gps;
     const center = gps.length > 0
       ? { lat: gps[0].lat, lng: gps[0].lon }
       : { lat: 42.82, lng: -1.64 };
@@ -177,7 +177,7 @@ export default function MapsPanelV2() {
       fullscreenControl: false,
       streetViewControl: false,
     });
-  }, [mapsReady, store.gpsPoints]);
+  }, [mapsReady, store.gps]);
 
   // ── 4. Redibujar marcadores ────────────────────────────────
   useEffect(() => {
@@ -191,7 +191,7 @@ export default function MapsPanelV2() {
     if (polyRef.current) { polyRef.current.setMap(null); polyRef.current = null; }
 
     // Traza GPS
-    const gps = store.gpsPoints as { lat: number; lon: number; dist?: number }[];
+    const gps = store.gps as { lat: number; lon: number; dist?: number }[];
     if (gps.length > 1) {
       polyRef.current = new G.Polyline({
         path: gps.map(p => ({ lat: p.lat, lng: p.lon })),
@@ -233,7 +233,7 @@ export default function MapsPanelV2() {
       });
       markers.current.push(mk);
     });
-  }, [mapsReady, store.anoms, store.gpsPoints, filters]);
+  }, [mapsReady, store.anoms, store.gps, filters]);
 
   const saveKey = () => {
     const k = draft.trim();
