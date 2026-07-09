@@ -482,13 +482,12 @@ export default function PlanificacionPage() {
 
   const handleDragEnd = async (e: DragEndEvent) => {
     setActiveDrag(null);
-    // Bloquear modificaciones si el usuario no tiene permiso de asignar
-    if (!puedeAsignar) return;
     if (!e.over) return;
     const aid = String(e.active.id); const oid = String(e.over.id);
 
     // ---- Vista Obras: drop resource on obra cell ----
     if (aid.startsWith("res-") && oid.startsWith("cell-")) {
+      if (!puedeAsignar) return;
       const [tipo, recursoId] = aid.replace("res-", "").split("|");
       const [obraId, dateStr] = oid.replace("cell-", "").split("|");
       if (!tipo || !recursoId || !obraId || !dateStr) return;
@@ -507,6 +506,7 @@ export default function PlanificacionPage() {
 
     // ---- Vista RRHH: drop obra on person cell ----
     if (aid.startsWith("panel-obra|") && oid.startsWith("cell-")) {
+      if (!puedeAsignar) return;
       const obraId = aid.replace("panel-obra|", "");
       const [recursoId, dateStr] = oid.replace("cell-", "").split("|");
       if (!obraId || !recursoId || !dateStr) return;
@@ -519,6 +519,7 @@ export default function PlanificacionPage() {
 
     // ---- Vista RRHH: drop maq/veh/mat on person cell (assign to person's obra that day) ----
     if (aid.startsWith("panel-vehiculo|") && oid.startsWith("cell-")) {
+      if (!puedeAsignar) return;
       const parts = aid.replace("panel-", "").split("|");
       const tipo = parts[0] as RecursoTipo; const recursoId = parts[1];
       const [personId, dateStr] = oid.replace("cell-", "").split("|");
