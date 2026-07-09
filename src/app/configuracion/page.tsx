@@ -30,6 +30,7 @@ const PANTALLAS = [
   { id: "maestros_contactos_leyna", label: "Contactos LEYNA" },
   { id: "almacen_etiquetas", label: "Almacén - Etiquetas" },
   { id: "apps_georadar", label: "Georadar" },
+  { id: "apps_georadar_v2", label: "Georadar V2" },
   { id: "logs", label: "Logs" },
   { id: "configuracion", label: "Configuración" },
 ];
