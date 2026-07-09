@@ -88,7 +88,21 @@ export default function GeoradarV2Page() {
   const handleLoadGnss = async (file: File) => {
     setLoadingFile("gnss");
     try {
-      const txt = await file.text();
+      // Soportar UTF-16 LE/BE (formato Proceq)
+      let txt: string;
+      try {
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        if (bytes[0] === 0xFF && bytes[1] === 0xFE) {
+          txt = new TextDecoder("utf-16le").decode(buf);
+        } else if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+          txt = new TextDecoder("utf-16be").decode(buf);
+        } else {
+          txt = new TextDecoder("utf-8").decode(buf);
+        }
+      } catch {
+        txt = await file.text();
+      }
       const pts = parseGnssText(txt);
       store.setGps(pts);
       if (pts.length > 0) {
@@ -103,9 +117,26 @@ export default function GeoradarV2Page() {
   const handleLoadParams = async (file: File) => {
     setLoadingFile("params");
     try {
-      const txt = await file.text();
+      // Proceq exporta CSV en UTF-16 LE con BOM — intentar ambas codificaciones
+      let txt: string;
+      try {
+        const buf = await file.arrayBuffer();
+        // Detectar BOM UTF-16 LE (FF FE)
+        const bytes = new Uint8Array(buf);
+        if (bytes[0] === 0xFF && bytes[1] === 0xFE) {
+          txt = new TextDecoder("utf-16le").decode(buf);
+        } else if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+          txt = new TextDecoder("utf-16be").decode(buf);
+        } else {
+          txt = new TextDecoder("utf-8").decode(buf);
+        }
+      } catch {
+        txt = await file.text();
+      }
       const r = parseParamsText(txt);
       if (r) store.setAnchuraM(r.longitudM);
+    } catch (err) {
+      console.error("Error al cargar CSV de parámetros:", err);
     } finally {
       setLoadingFile(null);
       setTimeout(runDetection, 50);
