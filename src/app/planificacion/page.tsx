@@ -66,9 +66,9 @@ function PanelItem({ dragId, nombre, foto_url, color, detail, count, iconType }:
 }
 
 // ---- Droppable Cell for Vista Obras ----
-const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo, onRemove, dw, hasConflict }: {
+const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo, onRemove, dw, conflictResources }: {
   obraId: string; dateStr: string; assignments: Asignacion[]; resInfo: Record<string, ResourceInfo>;
-  onRemove: (id: string) => void; dw: number; hasConflict: boolean;
+  onRemove: (id: string) => void; dw: number; conflictResources: Set<string>;
 }) {
   const cid = `cell-${obraId}|${dateStr}`;
   const { setNodeRef, isOver } = useDroppable({ id: cid });
@@ -76,26 +76,55 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
   const otros = assignments.filter((a) => a.recurso_tipo !== "humano");
   return (
     <div ref={setNodeRef} className={cn("h-full border-r border-surface-100 flex flex-col items-center justify-center gap-0.5 p-0.5 transition-colors",
-      isOver ? "bg-brand-100 ring-2 ring-brand-400 ring-inset" : "", hasConflict ? "bg-red-50 ring-1 ring-red-300 ring-inset" : "")}
+      isOver ? "bg-brand-100 ring-2 ring-brand-400 ring-inset" : "")}
       style={{ width: dw, minWidth: dw }}>
       <div className="flex flex-wrap gap-0.5 justify-center">
-        {personas.map((a) => { const info = resInfo[`${a.recurso_tipo}|${a.recurso_id}`]; return info?.foto_url ? (
-          <img key={a.id} src={info.foto_url} alt={info.nombre} title={`${info.nombre}\nClic para quitar`}
-            className={cn("rounded-full object-cover cursor-pointer hover:ring-2 hover:ring-red-400", dw > 60 ? "w-6 h-6" : "w-4 h-4")} onClick={() => onRemove(a.id)} />
-        ) : (
-          <div key={a.id} title={`${info?.nombre || "?"}\nClic para quitar`}
-            className={cn("rounded-full bg-violet-200 text-violet-800 flex items-center justify-center font-bold cursor-pointer hover:ring-2 hover:ring-red-400",
-              dw > 60 ? "w-6 h-6 text-[8px]" : "w-4 h-4 text-[6px]")} onClick={() => onRemove(a.id)}>{info?.initials || "?"}</div>
-        ); })}
+        {personas.map((a) => {
+          const rkey = `${a.recurso_tipo}|${a.recurso_id}`;
+          const info = resInfo[rkey];
+          const isConflict = conflictResources.has(rkey);
+          return info?.foto_url ? (
+            <img key={a.id} src={info.foto_url} alt={info.nombre}
+              title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
+              className={cn("rounded-full object-cover cursor-pointer", dw > 60 ? "w-6 h-6" : "w-4 h-4",
+                isConflict ? "ring-2 ring-red-500 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
+              onClick={() => onRemove(a.id)} />
+          ) : (
+            <div key={a.id}
+              title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
+              className={cn("rounded-full flex items-center justify-center font-bold cursor-pointer",
+                dw > 60 ? "w-6 h-6 text-[8px]" : "w-4 h-4 text-[6px]",
+                isConflict
+                  ? "bg-red-500 text-white ring-2 ring-red-700 ring-offset-1"
+                  : "bg-violet-200 text-violet-800 hover:ring-2 hover:ring-red-400")}
+              onClick={() => onRemove(a.id)}>{info?.initials || "?"}</div>
+          );
+        })}
       </div>
       <div className="flex flex-wrap gap-0.5 justify-center">
-        {otros.map((a) => { const info = resInfo[`${a.recurso_tipo}|${a.recurso_id}`]; const Icon = TIPO_ICON[a.recurso_tipo]; return info?.foto_url ? (
-          <img key={a.id} src={info.foto_url} alt={info.nombre} title={`${info.nombre}\nClic para quitar`}
-            className="w-4 h-4 rounded-full object-cover cursor-pointer hover:ring-2 hover:ring-red-400" onClick={() => onRemove(a.id)} />
-        ) : (
-          <div key={a.id} title={`${info?.nombre || "?"}\nClic para quitar`}
-            className={cn("w-4 h-4 rounded-full flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-red-400", TIPO_BG[a.recurso_tipo])} onClick={() => onRemove(a.id)}><Icon className="w-2 h-2" /></div>
-        ); })}
+        {otros.map((a) => {
+          const rkey = `${a.recurso_tipo}|${a.recurso_id}`;
+          const info = resInfo[rkey];
+          const Icon = TIPO_ICON[a.recurso_tipo];
+          const isConflict = conflictResources.has(rkey);
+          return info?.foto_url ? (
+            <img key={a.id} src={info.foto_url} alt={info.nombre}
+              title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
+              className={cn("w-4 h-4 rounded-full object-cover cursor-pointer",
+                isConflict ? "ring-2 ring-red-500 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
+              onClick={() => onRemove(a.id)} />
+          ) : (
+            <div key={a.id}
+              title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
+              className={cn("w-4 h-4 rounded-full flex items-center justify-center cursor-pointer",
+                isConflict
+                  ? "bg-red-500 ring-2 ring-red-700 ring-offset-1"
+                  : cn(TIPO_BG[a.recurso_tipo], "hover:ring-2 hover:ring-red-400"))}
+              onClick={() => onRemove(a.id)}>
+              <Icon className="w-2 h-2 text-white" />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -204,10 +233,10 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
 }
 
 // ---- Sortable Row for Vista Obras ----
-function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictCells, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved }: {
+function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved }: {
   obra: Obra; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
   obraRange?: { min: string; max: string }; resInfo: Record<string, ResourceInfo>;
-  conflictCells: Set<string>; onRemove: (id: string) => void; onArchive: (id: string, v: boolean) => void;
+  conflictResources: Set<string>; onRemove: (id: string) => void; onArchive: (id: string, v: boolean) => void;
   onAddManual: (obraId: string, obraName: string) => void; onChangeEstado: (obraId: string, estadoId: string) => void;
   estados: EstadoObra[]; dw: number; isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
   notas: Record<string, any>; onNoteSaved: () => void;
@@ -243,7 +272,7 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
             {inRange && <div className="absolute inset-0" style={{ backgroundColor: `${obra.color || "#DC2626"}08` }} />}
             <div className="relative h-full min-h-[44px] group">
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
-                onRemove={onRemove} dw={dw} hasConflict={conflictCells.has(`${obra.id}|${ds}`)} />
+                onRemove={onRemove} dw={dw} conflictResources={conflictResources} />
               <div className="absolute top-0 right-0.5 z-10">
                 <CellNote obraId={obra.id} fecha={ds} nota={notas[`${obra.id}|${ds}`] || null} onSaved={onNoteSaved} />
               </div>
@@ -384,24 +413,30 @@ export default function PlanificacionPage() {
     }); return g;
   }, [asignaciones]);
 
-  const conflictCells = useMemo(() => {
-    const rdm: Record<string, { obraId: string }[]> = {};
+  // conflictResources: Set de "recurso_tipo|recurso_id" para los recursos
+  // que están asignados a MÁS DE UNA obra en el rango de días visible.
+  // Solo estos recursos se muestran en rojo — la celda obra×día NO cambia de color.
+  const conflictResources = useMemo(() => {
+    const rdm: Record<string, Set<string>> = {};
     asignaciones.forEach((a) => {
       if (!CONFLICT_TYPES.includes(a.recurso_tipo)) return;
       const s = new Date(a.fecha_inicio); const e = new Date(a.fecha_fin);
       for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
         const ds = toDS(d);
         const key = `${a.recurso_tipo}|${a.recurso_id}|${ds}`;
-        if (!rdm[key]) rdm[key] = []; rdm[key].push({ obraId: a.obra_id });
+        if (!rdm[key]) rdm[key] = new Set();
+        rdm[key].add(a.obra_id);
       }
     });
-    const cells = new Set<string>();
-    Object.entries(rdm).forEach(([key, entries]) => {
-      if (Array.from(new Set(entries.map((e) => e.obraId))).length > 1) {
-        const ds = key.split("|")[2];
-        entries.forEach((e) => cells.add(`${e.obraId}|${ds}`));
+    const resources = new Set<string>();
+    Object.entries(rdm).forEach(([key, obraIds]) => {
+      if (obraIds.size > 1) {
+        // El recurso tiene conflicto: "recurso_tipo|recurso_id"
+        const parts = key.split("|");
+        resources.add(`${parts[0]}|${parts[1]}`);
       }
-    }); return cells;
+    });
+    return resources;
   }, [asignaciones]);
 
   const obraRanges = useMemo(() => {
@@ -663,7 +698,7 @@ export default function PlanificacionPage() {
         <div className="animate-fade-in pb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><CalendarRange className="w-4 h-4 text-brand-600" /><h1 className="text-base font-display font-bold text-surface-900">Planificación</h1></div>
-            {conflictCells.size > 0 && <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictCells.size}</span>}
+            {conflictResources.size > 0 && <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictResources.size} conflicto{conflictResources.size > 1 ? "s" : ""}</span>}
           </div>
           {/* Week strip */}
           <div className="flex gap-1 mb-3">
@@ -756,7 +791,7 @@ export default function PlanificacionPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {conflictCells.size > 0 && <span className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictCells.size}</span>}
+              {conflictResources.size > 0 && <span className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictResources.size} conflicto{conflictResources.size > 1 ? "s" : ""}</span>}
               <div className="relative">
                 <input type="text" value={obraSearch} onChange={(e) => setObraSearch(e.target.value)} placeholder="Filtrar obra..." className="w-32 px-2 py-1 pl-7 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:w-44 transition-all" />
                 <Search className="w-3 h-3 text-surface-400 absolute left-2 top-1/2 -translate-y-1/2" />
@@ -817,7 +852,7 @@ export default function PlanificacionPage() {
                         {sortedObras.map((obra) => (
                           <ObraRow key={obra.id} obra={obra} dateStrs={dateStrs} days={days}
                             assignGrid={displayGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
-                            conflictCells={conflictCells} onRemove={handleRemove} onArchive={handleArchive}
+                            conflictResources={conflictResources} onRemove={handleRemove} onArchive={handleArchive}
                             onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
                             onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
                             estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
