@@ -95,19 +95,23 @@ function drawHeatmap(
   anoms: any[],
   radiusPx = 40
 ) {
+  try {
   const W = canvas.width;
   const H = canvas.height;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, W, H);
   if (!anoms.length) return;
+  // Mapa debe estar listo con proyección disponible
+  if (!map || !map.getProjection || !map.getProjection()) return;
 
   // Solo anomalías con GPS
   const pts = anoms
     .filter(a => a.gpt && (a.type === "void" || a.type === "anomaly"))
     .map(a => {
       try {
-        const G    = (window as any).google.maps;
+        const G    = (window as any).google?.maps;
+        if (!G) return null;
         const proj = map.getProjection();
         const bounds = map.getBounds();
         if (!proj || !bounds) return null;
@@ -163,6 +167,7 @@ function drawHeatmap(
     img.data[idx] = r; img.data[idx+1] = g; img.data[idx+2] = b; img.data[idx+3] = a;
   }
   ctx.putImageData(img, 0, 0);
+  } catch (e) { /* heatmap no disponible aún */ }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -226,7 +231,8 @@ export default function MapsPanelV2() {
   // Inicializar mapa
   useEffect(() => {
     if (!mapsReady || !mapDivRef.current || mapInst.current) return;
-    const G = (window as any).google.maps;
+    const G = (window as any).google?.maps;
+    if (!G) return;
     const gps = store.gps as { lat: number; lon: number; dist?: number }[];
     const center = gps.length > 0
       ? { lat: gps[0].lat, lng: gps[0].lon }
@@ -254,10 +260,12 @@ export default function MapsPanelV2() {
 
     // Re-dibujar heatmap en cada movimiento del mapa
     heatListener.current = mapInst.current.addListener("idle", () => {
-      if (heatCanvas.current) {
-        heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
-        heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
-        drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+      if (heatCanvas.current && mapInst.current) {
+        try {
+          heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+          heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+          drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+        } catch { /* ignorar errores de heatmap en idle */ }
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -317,10 +325,12 @@ export default function MapsPanelV2() {
     });
 
     // Redibujar heatmap
-    if (heatCanvas.current) {
-      heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
-      heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
-      drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+    if (heatCanvas.current && mapInst.current) {
+      try {
+        heatCanvas.current.width  = mapDivRef.current?.clientWidth  || 600;
+        heatCanvas.current.height = mapDivRef.current?.clientHeight || 400;
+        drawHeatmap(heatCanvas.current, mapInst.current, store.anoms);
+      } catch { /* ignorar errores de heatmap */ }
     }
   }, [mapsReady, store.anoms, store.gps, filters, viewMode]);
 

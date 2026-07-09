@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Component, type ReactNode, type ErrorInfo } from "react";
 import dynamic from "next/dynamic";
 import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
@@ -19,6 +19,36 @@ import { parseGnssText, parseParamsText } from "@/lib/georadar/parseGnss";
 import { normalizeRange, drawBackground, drawOverlay, maxDepthOf } from "@/lib/georadar/renderRadargram";
 import { useGeoradarStore, type LayoutMode } from "@/lib/georadar/useGeoradarStore";
 import type { PromptContext } from "@/lib/georadar/buildPrompt";
+
+// ErrorBoundary para aislar fallos de MapsPanelV2 sin romper la página
+class MapErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(err: Error) {
+    return { error: err.message || "Error en el mapa" };
+  }
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    console.error("[MapsPanelV2 Error]", err, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full bg-red-50 rounded-xl border border-red-200 gap-3 p-6">
+          <span className="text-2xl">⚠️</span>
+          <p className="text-sm font-semibold text-red-700">Error en el mapa</p>
+          <p className="text-xs text-red-600 text-center max-w-sm">{this.state.error}</p>
+          <button onClick={() => this.setState({ error: null })}
+            className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-300 rounded-lg hover:bg-red-100">
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const RISK_LABEL: Record<string, { label: string; color: string }> = {
   high: { label: "Alto", color: "bg-red-100 text-red-700" },
@@ -570,7 +600,9 @@ export default function GeoradarV2Page() {
                 />
               )}
               {(showMapa || showCalor) && (
-                <MapsPanel />
+                <MapErrorBoundary>
+                  <MapsPanel />
+                </MapErrorBoundary>
               )}
             </div>
           </div>
