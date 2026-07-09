@@ -23,6 +23,7 @@ export default function ObrasPage() {
   const [data, setData] = useState<Obra[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("");
+  const [archivedFilter, setArchivedFilter] = useState<"activas" | "archivadas" | "todas">("activas");
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
@@ -128,7 +129,12 @@ export default function ObrasPage() {
     setArchivando(null);
   };
 
-  const filteredData = estadoFilter ? data.filter((o) => o.estado_obra_id === estadoFilter) : data;
+  const filteredData = data.filter((o) => {
+    if (archivedFilter === "activas"    && (o as any).archivada) return false;
+    if (archivedFilter === "archivadas" && !(o as any).archivada) return false;
+    if (estadoFilter && o.estado_obra_id !== estadoFilter) return false;
+    return true;
+  });
 
   return (
     <AppLayout>
@@ -144,6 +150,16 @@ export default function ObrasPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Selector activas / archivadas / todas */}
+            <div className="flex bg-surface-100 rounded-lg p-0.5 gap-0.5">
+              {(["activas", "archivadas", "todas"] as const).map((v) => (
+                <button key={v} onClick={() => setArchivedFilter(v)}
+                  className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors capitalize",
+                    archivedFilter === v ? "bg-white text-surface-900 shadow-sm" : "text-surface-500 hover:text-surface-700")}>
+                  {v === "activas" ? "Activas" : v === "archivadas" ? "Archivadas" : "Todas"}
+                </button>
+              ))}
+            </div>
             <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} className="px-3 py-2 text-sm bg-surface-100 border-0 rounded-lg text-surface-600 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
               <option value="">Todos los estados</option>
               {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
@@ -156,7 +172,7 @@ export default function ObrasPage() {
           </div>
         </div>
         <div onClick={() => { if (confirmArchive) setConfirmArchive(null); }}>
-        <DataTable data={filteredData} columns={columns} title="Todas las obras" loading={loading}
+        <DataTable data={filteredData} columns={columns} title={archivedFilter === "activas" ? "Obras activas" : archivedFilter === "archivadas" ? "Obras archivadas" : "Todas las obras"} loading={loading}
           searchPlaceholder="Buscar por nombre, cliente, dirección, localidad, presupuesto..."
           searchKeys={["nombre", "ubicacion", "estado", (o: any) => o.cliente?.nombre || "", (o: any) => o.direccion || "", (o: any) => o.localidad || "", (o: any) => o.num_presupuesto || ""]}
           canAdd={false} canEdit={false} canDelete={false} />

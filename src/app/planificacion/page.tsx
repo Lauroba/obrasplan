@@ -29,9 +29,9 @@ type ResourceInfo = { nombre: string; foto_url: string | null; tipo: RecursoTipo
 
 const TIPO_ICON: Record<string, typeof Users> = { humano: Users, vehiculo: Truck, obra: Building2 };
 const TIPO_BG: Record<string, string> = { humano: "bg-violet-100 text-violet-700", vehiculo: "bg-teal-100 text-teal-700", obra: "bg-brand-100 text-brand-700" };
-const DAY_WIDTHS: Record<ViewMode, number> = { week: 110, month: 40, year: 18 };
+const DAY_WIDTHS: Record<ViewMode, number> = { week: 96, month: 36, year: 16 };
 const DAYS_COUNT: Record<ViewMode, number> = { week: 7, month: 31, year: 364 };
-const LABEL_W = 210;
+const LABEL_W = 185;
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "vehiculo"];
 const SIN_ASIGNAR_ID = "SIN_ASIGNAR"; // ID virtual para la fila especial, nunca existe en BD
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -87,7 +87,7 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
             <img key={a.id} src={info.foto_url} alt={info.nombre}
               title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
               className={cn("rounded-full object-cover cursor-pointer", dw > 60 ? "w-6 h-6" : "w-4 h-4",
-                isConflict ? "ring-2 ring-red-500 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
+                isConflict ? "ring-2 ring-red-400 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
               onClick={() => onRemove(a.id)} />
           ) : (
             <div key={a.id}
@@ -95,7 +95,7 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
               className={cn("rounded-full flex items-center justify-center font-bold cursor-pointer",
                 dw > 60 ? "w-6 h-6 text-[8px]" : "w-4 h-4 text-[6px]",
                 isConflict
-                  ? "bg-red-500 text-white ring-2 ring-red-700 ring-offset-1"
+                  ? "bg-violet-200 text-violet-800 ring-2 ring-red-400 ring-offset-1"
                   : "bg-violet-200 text-violet-800 hover:ring-2 hover:ring-red-400")}
               onClick={() => onRemove(a.id)}>{info?.initials || "?"}</div>
           );
@@ -111,14 +111,14 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
             <img key={a.id} src={info.foto_url} alt={info.nombre}
               title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
               className={cn("w-4 h-4 rounded-full object-cover cursor-pointer",
-                isConflict ? "ring-2 ring-red-500 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
+                isConflict ? "ring-2 ring-red-400 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
               onClick={() => onRemove(a.id)} />
           ) : (
             <div key={a.id}
               title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
               className={cn("w-4 h-4 rounded-full flex items-center justify-center cursor-pointer",
                 isConflict
-                  ? "bg-red-500 ring-2 ring-red-700 ring-offset-1"
+                  ? cn(TIPO_BG[a.recurso_tipo], "ring-2 ring-red-400 ring-offset-1")
                   : cn(TIPO_BG[a.recurso_tipo], "hover:ring-2 hover:ring-red-400"))}
               onClick={() => onRemove(a.id)}>
               <Icon className="w-2 h-2 text-white" />
@@ -187,7 +187,7 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
           <div key={ds} style={{ width: dw, minWidth: dw }}
             className={cn("border-r border-amber-100 relative",
               isToday(day) ? "bg-brand-50/20" : isWeekend(day) ? "bg-amber-50/60" : "")}>
-            <div className="h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 p-0.5 overflow-hidden">
+            <div className="h-full min-h-[38px] flex flex-col items-center justify-center gap-0.5 p-0.5 overflow-hidden">
               {/* RRHH sin asignar ese día */}
               <div className="flex flex-wrap gap-0.5 justify-center">
                 {personas.map((a) => {
@@ -246,9 +246,9 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
   return (
     <div ref={setNodeRef} style={style} className={cn("flex border-b border-surface-100 group bg-white", obra.archivada && "opacity-50")}>
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
-        <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
+        <div {...attributes} {...listeners} className="px-1 py-2 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
         <div className="w-2 h-2 rounded-full shrink-0 mr-1.5" style={{ backgroundColor: obra.color || "#DC2626" }} />
-        <div className="flex-1 min-w-0 py-1.5 pr-1">
+        <div className="flex-1 min-w-0 py-1 pr-1">
           <Link href={`/obras/${obra.id}`} className="text-[11px] font-medium text-surface-900 hover:text-brand-600 truncate block" onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
           <select value={obra.estado_obra_id || ""} onChange={(e) => { e.stopPropagation(); onChangeEstado(obra.id, e.target.value); }}
             className="text-[9px] pl-0.5 pr-3 py-0 border-0 bg-transparent rounded cursor-pointer focus:outline-none appearance-none"
@@ -270,7 +270,7 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
           <div key={ds} style={{ width: dw, minWidth: dw }} className={cn("border-r border-surface-100 relative",
             isToday(day) ? "bg-brand-50/30" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             {inRange && <div className="absolute inset-0" style={{ backgroundColor: `${obra.color || "#DC2626"}08` }} />}
-            <div className="relative h-full min-h-[44px] group">
+            <div className="relative h-full min-h-[38px] group">
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
                 onRemove={onRemove} dw={dw} conflictResources={conflictResources} />
               <div className="absolute top-0 right-0.5 z-10">
@@ -295,7 +295,7 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
   return (
     <div ref={setNodeRef} style={style} className="flex border-b border-surface-100 bg-white">
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
-        <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
+        <div {...attributes} {...listeners} className="px-1 py-2 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
         {persona.foto_url ? <img src={persona.foto_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" /> :
           <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[10px] font-bold shrink-0">
             {persona.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
