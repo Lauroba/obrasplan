@@ -42,7 +42,8 @@ export interface GpsPoint {
 }
 
 export interface AnomalyResult {
-  type: "void" | "supply";
+  type: "void" | "supply" | "pipe" | "anomaly";
+  subtype?: string;  // metal, pvc, hormigon, cable (para tuberias)
   col: number;
   row: number;
   w: number;
