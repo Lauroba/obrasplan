@@ -82,7 +82,7 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
         {personas.map((a) => {
           const rkey = `${a.recurso_tipo}|${a.recurso_id}`;
           const info = resInfo[rkey];
-          const isConflict = conflictResources.has(rkey);
+          const isConflict = conflictResources.has(`${rkey}|${dateStr}`);
           return info?.foto_url ? (
             <img key={a.id} src={info.foto_url} alt={info.nombre}
               title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
@@ -106,7 +106,7 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
           const rkey = `${a.recurso_tipo}|${a.recurso_id}`;
           const info = resInfo[rkey];
           const Icon = TIPO_ICON[a.recurso_tipo];
-          const isConflict = conflictResources.has(rkey);
+          const isConflict = conflictResources.has(`${rkey}|${dateStr}`);
           return info?.foto_url ? (
             <img key={a.id} src={info.foto_url} alt={info.nombre}
               title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
@@ -431,9 +431,8 @@ export default function PlanificacionPage() {
     const resources = new Set<string>();
     Object.entries(rdm).forEach(([key, obraIds]) => {
       if (obraIds.size > 1) {
-        // El recurso tiene conflicto: "recurso_tipo|recurso_id"
-        const parts = key.split("|");
-        resources.add(`${parts[0]}|${parts[1]}`);
+        // Guardar "tipo|id|fecha" para saber exactamente qué día hay conflicto
+        resources.add(key);
       }
     });
     return resources;
