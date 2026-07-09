@@ -89,7 +89,7 @@ export function usePermissions() {
   // Screens that should appear in the sidebar
   const visibleScreens = useCallback((): Set<string> => {
     if (isAdmin) return new Set(["dashboard", "planificacion", "obras", "partes",
-      "apps_georadar", "apps_georadar_v2",
+      "apps_georadar",
       "almacen_articulos", "almacen_tipos_articulo", "almacen_almacenes", "almacen_proveedores", "almacen_movimientos", "almacen_etiquetas",
       "maestros_rrhh", "maestros_vehiculos",
       "maestros_clientes", "maestros_estados", "maestros_tipos_trabajo", "maestros_tipos_obra", "maestros_contactos_leyna", "almacen_etiquetas",

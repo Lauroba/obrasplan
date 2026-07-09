@@ -26,8 +26,7 @@ const navigation = [
 // propio `screen` dado de alta en rol_permisos) -- no requiere tocar
 // ninguna otra parte del Sidebar ni del sistema de permisos.
 const aplicaciones = [
-  { name: "Interpretación de Georradar", href: "/aplicaciones/georadar", icon: Radar, screen: "apps_georadar" },
-  { name: "Georadar V2", href: "/aplicaciones/georadar-v2", icon: Radar, screen: "apps_georadar_v2" },
+  { name: "Georadar", href: "/aplicaciones/georadar", icon: Radar, screen: "apps_georadar" },
 ];
 
 const almacen = [

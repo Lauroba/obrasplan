@@ -400,7 +400,7 @@ export default function GeoradarPage() {
               <Radar className="w-5 h-5 text-brand-600" />
             </div>
             <div>
-              <h1 className="text-xl font-display font-bold text-surface-900">Interpretación de Georradar</h1>
+              <h1 className="text-xl font-display font-bold text-surface-900">Georadar</h1>
               <p className="text-sm text-surface-500">Análisis de radargramas Proceq GS8000 Pro</p>
             </div>
           </div>
