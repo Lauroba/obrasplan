@@ -102,12 +102,12 @@ export default function ParteDetallePage() {
     setForm((f) => ({ ...f, obra_id: obraId, direccion: obra?.direccion || "", localidad: obra?.localidad || "", provincia: obra?.provincia || "" }));
   };
 
-  // Obras a las que el operario está asignado en la fecha actual del parte
+  // Obras a las que el operario esta asignado en la fecha actual del parte
   const obrasDelDia = isAdmin ? obras : obras.filter((o: any) =>
     misAsignaciones.some((a) => a.obra_id === o.id && a.fecha_inicio <= form.fecha && a.fecha_fin >= form.fecha)
   );
 
-  // Si el operario cambia la fecha manualmente, resolver/forzar la obra según su asignación de ese día
+  // Si el operario cambia la fecha manualmente, resolver la obra segun su asignacion de ese día
   useEffect(() => {
     if (isAdmin || !fechaChangedManually.current) return;
     if (obrasDelDia.length === 1) {
@@ -168,7 +168,7 @@ export default function ParteDetallePage() {
     }
     setSaving(false);
     await fetchData();
-    // Envío automático — siempre a lauroba.eneko@gmail.com (sin confirm)
+    // Envio automatico - siempre a lauroba.eneko@gmail.com (sin confirm)
     setSendingEmail(true);
     try {
       await fetch("/api/partes/email", {
