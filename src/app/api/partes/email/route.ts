@@ -6,88 +6,117 @@ export async function POST(req: NextRequest) {
   try {
     const { parteId } = await req.json();
     if (!parteId) return NextResponse.json({ error: "parteId required" }, { status: 400 });
-    const FIXED_TO = "lauroba.eneko@gmail.com"; // Único destinatario siempre
 
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     if (!RESEND_API_KEY) return NextResponse.json({ error: "RESEND_API_KEY not configured" }, { status: 500 });
 
+    const FIXED_TO = "lauroba.eneko@gmail.com";
     const supabase = createAdminClient();
 
-    // Fetch settings for CC and design
-    const { data: settings } = await supabase.from("app_settings").select("value").eq("key", "partes_email").single();
+    // ── Configuración de la empresa ──────────────────────────────────────────
+    const { data: settings } = await supabase
+      .from("app_settings").select("value").eq("key", "partes_email").single();
     const config = settings?.value || {};
-    const ccEmails: string[] = config.cc_emails || [];
-    const empresaNombre = config.empresa_nombre || "LOYNEK Soluciones Técnicas";
-    const footerText = config.footer_text || "Este email ha sido enviado automáticamente desde ObrasPlan";
-    const colorPrimario = config.color_primario || "#DC2626";
+    const empresaNombre  = config.empresa_nombre  || "LOYNEK Soluciones Técnicas";
+    const footerText     = config.footer_text     || "Email generado automáticamente desde ObrasPlan";
+    const colorPrimario  = config.color_primario  || "#DC2626";
 
-    // Fetch parte info for email body
-    const { data: parte } = await supabase.from("partes_diarios").select("*, obra:obras(nombre, contacto_obra_nombre)").eq("id", parteId).single();
+    // ── Datos del parte ──────────────────────────────────────────────────────
+    const { data: parte } = await supabase
+      .from("partes_diarios")
+      .select("*, obra:obras(nombre, contacto_obra_nombre)")
+      .eq("id", parteId)
+      .single();
     if (!parte) return NextResponse.json({ error: "Parte not found" }, { status: 404 });
 
-    const obraName = parte.obra?.nombre || "Sin obra";
-    const contactName = parte.obra?.contacto_obra_nombre || "";
-    const fecha = parte.fecha ? new Date(parte.fecha + "T12:00:00").toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
+    const obraName   = parte.obra?.nombre || "Sin obra";
+    const fecha      = parte.fecha
+      ? new Date(parte.fecha + "T12:00:00").toLocaleDateString("es-ES", {
+          day: "numeric", month: "long", year: "numeric",
+        })
+      : "";
 
-    // Generate PDF
+    // ── Generar PDF ──────────────────────────────────────────────────────────
+    console.log("[partes/email] Generando PDF para parte", parteId);
     const pdfData = await generatePartePdf(parteId);
 
-    // Get download links for documents and audios
-    const { data: docs } = await supabase.from("documentos").select("nombre_archivo, storage_path, tipo").eq("parte_id", parteId);
-    const { data: audios } = await supabase.from("parte_audios").select("nombre_archivo, storage_path").eq("parte_id", parteId);
+    // ── Adjuntos: descargar bytes reales de Supabase ──────────────────────────
+    const { data: docs   } = await supabase
+      .from("documentos")
+      .select("nombre_archivo, storage_path, tipo")
+      .eq("parte_id", parteId);
+    const { data: audios } = await supabase
+      .from("parte_audios")
+      .select("nombre_archivo, storage_path")
+      .eq("parte_id", parteId);
 
-    const attachmentLinks: { name: string; url: string; type: string }[] = [];
+    // Resend acepta attachments con { filename, content } donde content es base64
+    const attachments: { filename: string; content: string }[] = [
+      { filename: pdfData.filename, content: pdfData.pdf },
+    ];
 
-    for (const doc of (docs || [])) {
-      const { data: signed } = await supabase.storage.from("documentos").createSignedUrl(doc.storage_path, 604800); // 7 days
-      if (signed?.signedUrl) attachmentLinks.push({ name: doc.nombre_archivo, url: signed.signedUrl, type: doc.tipo || "documento" });
+    // Documentos (fotos, PDFs, etc.)
+    for (const d of (docs || [])) {
+      try {
+        const { data: signed } = await supabase.storage
+          .from("documentos")
+          .createSignedUrl(d.storage_path, 300);
+        if (!signed?.signedUrl) continue;
+        const resp = await fetch(signed.signedUrl);
+        if (!resp.ok) continue;
+        const buf = await resp.arrayBuffer();
+        const b64 = Buffer.from(buf).toString("base64");
+        attachments.push({ filename: d.nombre_archivo, content: b64 });
+      } catch { /* ignorar archivos que fallen */ }
     }
-    for (const audio of (audios || [])) {
-      const { data: signed } = await supabase.storage.from("audios").createSignedUrl(audio.storage_path, 604800);
-      if (signed?.signedUrl) attachmentLinks.push({ name: audio.nombre_archivo, url: signed.signedUrl, type: "audio" });
+
+    // Audios
+    for (const a of (audios || [])) {
+      try {
+        const { data: signed } = await supabase.storage
+          .from("audios")
+          .createSignedUrl(a.storage_path, 300);
+        if (!signed?.signedUrl) continue;
+        const resp = await fetch(signed.signedUrl);
+        if (!resp.ok) continue;
+        const buf = await resp.arrayBuffer();
+        const b64 = Buffer.from(buf).toString("base64");
+        attachments.push({ filename: a.nombre_archivo, content: b64 });
+      } catch { /* ignorar audios que fallen */ }
     }
 
-    // Build attachments HTML
-    let attachmentsHtml = "";
-    if (attachmentLinks.length > 0) {
-      attachmentsHtml = `
-        <div style="margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 8px;">
-          <p style="color: #333; font-weight: bold; margin: 0 0 10px 0; font-size: 14px;">Documentos adjuntos:</p>
-          ${attachmentLinks.map((a) => `<p style="margin: 5px 0;"><a href="${a.url}" style="color: ${colorPrimario}; text-decoration: none;">📎 ${a.name}</a> <span style="color: #999; font-size: 12px;">(${a.type})</span></p>`).join("")}
-        </div>
-      `;
-    }
+    const nAdj = attachments.length - 1; // sin contar el PDF
+    console.log(`[partes/email] ${attachments.length} adjuntos (PDF + ${nAdj} archivos)`);
 
-    // Build email — destinatario fijo: lauroba.eneko@gmail.com
-    const emailPayload: any = {
+    // ── Construir email ──────────────────────────────────────────────────────
+    const emailPayload = {
       from: `${empresaNombre} <onboarding@resend.dev>`,
-      to: [FIXED_TO],
+      to:   [FIXED_TO],
       subject: `Parte de trabajo — ${obraName} — ${fecha}`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: ${colorPrimario}; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="color: white; margin: 0; font-size: 20px;">${empresaNombre} — Parte de Trabajo</h1>
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+          <div style="background:${colorPrimario};padding:20px;text-align:center;border-radius:8px 8px 0 0">
+            <h1 style="color:white;margin:0;font-size:20px">${empresaNombre} — Parte de Trabajo</h1>
           </div>
-          <div style="padding: 20px; background: #f9f9f9;">
-            <p style="color: #333;">Estimado/a ${contactName || ""},</p>
-            <p style="color: #333;">Adjunto el parte de trabajo correspondiente a la obra <strong>${obraName}</strong> del <strong>${fecha}</strong>.</p>
-            <p style="color: #333;">Encontrará el parte en formato PDF adjunto a este email.</p>
-            ${attachmentsHtml}
-            <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;" />
-            <p style="color: #999; font-size: 12px;">${footerText}</p>
+          <div style="padding:20px;background:#f9f9f9">
+            <p style="color:#333">Parte de trabajo de la obra <strong>${obraName}</strong>, fecha <strong>${fecha}</strong>.</p>
+            <p style="color:#333">Se adjuntan el PDF del parte${nAdj > 0 ? ` y ${nAdj} archivo${nAdj > 1 ? "s" : ""} adicional${nAdj > 1 ? "es" : ""}` : ""}.</p>
+            <hr style="border:none;border-top:1px solid #ddd;margin:20px 0"/>
+            <p style="color:#999;font-size:12px">${footerText}</p>
           </div>
         </div>
       `,
-      attachments: [{ filename: pdfData.filename, content: pdfData.pdf }],
+      attachments,
     };
 
-    // CC desactivado — solo destinatario fijo
-
-    console.log("[partes/email] Enviando parte", parteId, "a lauroba.eneko@gmail.com");
-    // Send via Resend
+    // ── Enviar via Resend ────────────────────────────────────────────────────
+    console.log(`[partes/email] Enviando a ${FIXED_TO} — parte ${parteId}`);
     const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RESEND_API_KEY}` },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+      },
       body: JSON.stringify(emailPayload),
     });
 
@@ -95,13 +124,16 @@ export async function POST(req: NextRequest) {
       const errText = await emailRes.text();
       let errMsg = errText;
       try { errMsg = JSON.parse(errText).message || errText; } catch {}
+      console.error("[partes/email] Error Resend:", errMsg);
       return NextResponse.json({ error: `Error Resend: ${errMsg}` }, { status: 400 });
     }
 
     const emailResult = await emailRes.json();
-    console.log("[partes/email] OK - emailId:", emailResult.id);
+    console.log("[partes/email] OK — emailId:", emailResult.id);
     return NextResponse.json({ success: true, emailId: emailResult.id });
+
   } catch (err: any) {
+    console.error("[partes/email] Excepción:", err?.message);
     return NextResponse.json({ error: err.message || "Error sending email" }, { status: 500 });
   }
 }
