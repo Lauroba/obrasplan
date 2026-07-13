@@ -58,9 +58,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Build email
+    // ADMIN siempre en "to" para garantizar entrega independiente del dominio
+    const ADMIN_EMAIL = "lauroba.eneko@gmail.com";
+    const toList = toEmail && toEmail !== ADMIN_EMAIL
+      ? [toEmail, ADMIN_EMAIL]   // cliente + admin
+      : [ADMIN_EMAIL];            // solo admin si no hay email de obra
+    console.log("[partes/email] Enviando a:", toList, "| parteId:", parteId);
     const emailPayload: any = {
       from: `${empresaNombre} <onboarding@resend.dev>`,
-      to: [toEmail],
+      to: toList,
       subject: `Parte de trabajo — ${obraName} — ${fecha}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -80,10 +86,10 @@ export async function POST(req: NextRequest) {
       attachments: [{ filename: pdfData.filename, content: pdfData.pdf }],
     };
 
-    // CC siempre incluye el email de administración de ObrasPlan
-    const ADMIN_CC = "lauroba.eneko@gmail.com";
-    const allCc = [...ccEmails.filter((e: string) => e !== ADMIN_CC), ADMIN_CC];
-    emailPayload.cc = allCc;
+    // CC adicional desde configuración (opcional)
+    if (ccEmails.length > 0) {
+      emailPayload.cc = ccEmails;
+    }
 
     // Send via Resend
     const emailRes = await fetch("https://api.resend.com/emails", {
@@ -96,10 +102,12 @@ export async function POST(req: NextRequest) {
       const errText = await emailRes.text();
       let errMsg = errText;
       try { errMsg = JSON.parse(errText).message || errText; } catch {}
+      console.error("[partes/email] Error Resend:", errMsg, "| to:", toList);
       return NextResponse.json({ error: `Error Resend: ${errMsg}` }, { status: 400 });
     }
 
     const emailResult = await emailRes.json();
+    console.log("[partes/email] Email enviado OK. ID:", emailResult.id, "| to:", toList);
     return NextResponse.json({ success: true, emailId: emailResult.id });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Error sending email" }, { status: 500 });

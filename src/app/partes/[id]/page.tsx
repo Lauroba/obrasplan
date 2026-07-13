@@ -168,30 +168,31 @@ export default function ParteDetallePage() {
     }
     setSaving(false);
     await fetchData();
-    // Envío automático al firmar:
-    // - Si la obra tiene email de contacto -> se envía a ese email (destinatario principal)
-    // - Siempre se añade lauroba.eneko@gmail.com en CC (gestionado en la API route)
-    // - Sin confirmación del usuario
+    // Envío automático al firmar — sin confirmación del usuario.
+    // lauroba.eneko@gmail.com siempre recibe el email (gestionado en la API route).
     setSendingEmail(true);
     try {
+      // toEmail puede ser null si la obra no tiene email — la route lo maneja
+      let toEmail = "lauroba.eneko@gmail.com";
       if (form.obra_id) {
-        const { data: obraEmail } = await supabase.from("obras").select("contacto_obra_email").eq("id", form.obra_id).single();
-        // Usar email de la obra si existe, si no usar el admin como destinatario principal
-        const toEmail = obraEmail?.contacto_obra_email || "lauroba.eneko@gmail.com";
-        await fetch("/api/partes/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parteId: id, toEmail }),
-        });
-      } else {
-        // Sin obra asociada: enviar directamente al admin
-        await fetch("/api/partes/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parteId: id, toEmail: "lauroba.eneko@gmail.com" }),
-        });
+        const { data: obraEmail } = await supabase
+          .from("obras").select("contacto_obra_email").eq("id", form.obra_id).single();
+        if (obraEmail?.contacto_obra_email) {
+          toEmail = obraEmail.contacto_obra_email;
+        }
       }
-    } catch { /* ignorar errores de email para no bloquear el flujo */ }
+      const res = await fetch("/api/partes/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parteId: id, toEmail }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[firma] Error email:", (err as any).error);
+      }
+    } catch (e) {
+      console.error("[firma] Error inesperado al enviar email:", e);
+    }
     setSendingEmail(false);
   };
 
