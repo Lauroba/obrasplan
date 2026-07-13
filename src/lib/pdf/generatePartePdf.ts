@@ -91,22 +91,37 @@ export async function generatePartePdf(
     doc.addImage(`data:image/jpeg;base64,${LOGO_BASE64}`, "JPEG", MARGIN, y, 32, 22);
   } catch {}
 
-  doc.setFontSize(18);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(0, 0, 0);
-  doc.text("PARTE DE TRABAJO", w / 2, y + 9, { align: "center" });
-
   const fecha = parte.fecha
     ? new Date(parte.fecha + "T12:00:00").toLocaleDateString("es-ES", {
         weekday: "long", day: "numeric", month: "long", year: "numeric",
       })
     : "";
-  doc.setFontSize(10);
+  const creador = parte.creator?.nombre || parte.creator?.email || "—";
+
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(0, 0, 0);
+  doc.text("PARTE DE TRABAJO", w / 2, y + 8, { align: "center" });
+
+  // Obra destacada en la cabecera
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(220, 38, 38);
+  doc.text(parte.obra?.nombre || "Sin obra", w / 2, y + 15, { align: "center" });
+
+  // Fecha y creador
+  doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text(fecha, w - MARGIN, y + 9, { align: "right" });
+  doc.setTextColor(60, 60, 60);
+  doc.text(fecha, w / 2, y + 21, { align: "center" });
+  doc.setFontSize(8);
+  doc.setTextColor(100, 100, 100);
+  doc.text(`Creado por: ${creador}`, w / 2, y + 26, { align: "center" });
+
+  // Estado (derecha)
   doc.setFontSize(8);
   doc.setTextColor(150, 150, 150);
-  doc.text((parte.estado || "").toUpperCase(), w - MARGIN, y + 14, { align: "right" });
+  doc.text((parte.estado || "").toUpperCase(), w - MARGIN, y + 8, { align: "right" });
   doc.setTextColor(0, 0, 0);
 
   y = 44;
@@ -119,22 +134,19 @@ export async function generatePartePdf(
   y = sectionTitle(doc, "DATOS DE LA OBRA", y);
 
   doc.setFillColor(248, 249, 250);
-  doc.roundedRect(MARGIN, y, w - MARGIN * 2, 32, 2, 2, "F");
+  doc.roundedRect(MARGIN, y, w - MARGIN * 2, 22, 2, 2, "F");
 
-  label(doc); doc.text("OBRA", MARGIN + 4, y + 5);
-  doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(0, 0, 0);
-  doc.text(parte.obra?.nombre || "Sin obra", MARGIN + 4, y + 11);
-
-  label(doc); doc.text("DIRECCIÓN", MARGIN + 4, y + 17);
-  value(doc); doc.text(parte.direccion || "—", MARGIN + 4, y + 22);
-
+  // Dirección, localidad y provincia — la obra ya aparece en cabecera
   const midX = w / 2;
-  label(doc); doc.text("LOCALIDAD", midX + 4, y + 17);
-  value(doc); doc.text(parte.localidad || "—", midX + 4, y + 22);
+  label(doc); doc.text("DIRECCIÓN", MARGIN + 4, y + 5);
+  value(doc); doc.text(parte.direccion || "—", MARGIN + 4, y + 11);
 
-  label(doc); doc.text("PROVINCIA", MARGIN + 4, y + 27);
-  value(doc); doc.text(parte.provincia || "—", MARGIN + 4, y + 31);
-  y += 38;
+  label(doc); doc.text("LOCALIDAD", midX + 4, y + 5);
+  value(doc); doc.text(parte.localidad || "—", midX + 4, y + 11);
+
+  label(doc); doc.text("PROVINCIA", MARGIN + 4, y + 16);
+  value(doc); doc.text(parte.provincia || "—", MARGIN + 4, y + 21);
+  y += 28;
 
   // ── RESPONSABLES ────────────────────────────────────────────────────────────
   y = checkPage(doc, y, 22);
@@ -154,9 +166,7 @@ export async function generatePartePdf(
   value(doc); doc.text(parte.responsable_empresa || "—", MARGIN + col3 * 2 + 4, y + 11);
   y += 22;
 
-  label(doc); doc.text("CREADO POR", MARGIN, y);
-  value(doc); doc.text(parte.creator?.nombre || "—", MARGIN + 28, y);
-  y += 10;
+  y += 4; // (creador ya aparece en la cabecera del parte)
 
   // ── OBSERVACIONES ───────────────────────────────────────────────────────────
   if (parte.observaciones) {

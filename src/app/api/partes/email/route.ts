@@ -24,12 +24,13 @@ export async function POST(req: NextRequest) {
     // ── Datos del parte ──────────────────────────────────────────────────────
     const { data: parte } = await supabase
       .from("partes_diarios")
-      .select("*, obra:obras(nombre, contacto_obra_nombre)")
+      .select("*, obra:obras(nombre, contacto_obra_nombre), creator:users!partes_diarios_created_by_fkey(nombre)")
       .eq("id", parteId)
       .single();
     if (!parte) return NextResponse.json({ error: "Parte not found" }, { status: 404 });
 
     const obraName   = parte.obra?.nombre || "Sin obra";
+    const creador    = (parte as any).creator?.nombre || "—";
     const fecha      = parte.fecha
       ? new Date(parte.fecha + "T12:00:00").toLocaleDateString("es-ES", {
           day: "numeric", month: "long", year: "numeric",
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
     const emailPayload = {
       from: `${empresaNombre} <onboarding@resend.dev>`,
       to:   [FIXED_TO],
-      subject: `Parte de trabajo — ${obraName} — ${fecha}`,
+      subject: `Parte: ${obraName} | ${fecha} | ${creador}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
           <div style="background:${colorPrimario};padding:20px;text-align:center;border-radius:8px 8px 0 0">
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
           </div>
           <div style="padding:20px;background:#f9f9f9">
             <p style="color:#333">Parte de trabajo de la obra <strong>${obraName}</strong>, fecha <strong>${fecha}</strong>.</p>
+            <p style="color:#333">Creado por: <strong>${creador}</strong></p>
             <p style="color:#333">Se adjuntan el PDF del parte${nAdj > 0 ? ` y ${nAdj} archivo${nAdj > 1 ? "s" : ""} adicional${nAdj > 1 ? "es" : ""}` : ""}.</p>
             <hr style="border:none;border-top:1px solid #ddd;margin:20px 0"/>
             <p style="color:#999;font-size:12px">${footerText}</p>
