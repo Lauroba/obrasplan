@@ -107,7 +107,7 @@ export default function ParteDetallePage() {
     misAsignaciones.some((a) => a.obra_id === o.id && a.fecha_inicio <= form.fecha && a.fecha_fin >= form.fecha)
   );
 
-  // Si el operario cambia la fecha manualmente, resolver la obra segun su asignacion de ese día
+  // Si el operario cambia la fecha manualmente, resolver la obra segun su asignacion de ese dia
   useEffect(() => {
     if (isAdmin || !fechaChangedManually.current) return;
     if (obrasDelDia.length === 1) {
