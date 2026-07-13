@@ -380,6 +380,7 @@ export default function ParteDetallePage() {
                 const inp = document.createElement("input");
                 inp.type = "file";
                 inp.accept = ".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt";
+                inp.multiple = true;
                 inp.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
                 inp.onchange = (ev) => {
                   uploadFiles((ev.target as HTMLInputElement).files);
