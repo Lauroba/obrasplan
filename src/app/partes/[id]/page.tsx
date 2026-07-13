@@ -350,7 +350,7 @@ export default function ParteDetallePage() {
           </div>
         </div>
 
-        {/* Observaciones */
+        {/* Observaciones */}
         <div className="card p-6">
           <h2 className="text-sm font-semibold text-surface-900 mb-3">Observaciones</h2>
           <textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} disabled={!isEditable}
