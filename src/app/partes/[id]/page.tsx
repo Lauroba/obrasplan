@@ -168,30 +168,15 @@ export default function ParteDetallePage() {
     }
     setSaving(false);
     await fetchData();
-    // Envío automático al firmar:
-    // - Si la obra tiene email de contacto -> se envía a ese email (destinatario principal)
-    // - Siempre se añade lauroba.eneko@gmail.com en CC (gestionado en la API route)
-    // - Sin confirmación del usuario
+    // Envío automático — siempre a lauroba.eneko@gmail.com (sin confirm)
     setSendingEmail(true);
     try {
-      if (form.obra_id) {
-        const { data: obraEmail } = await supabase.from("obras").select("contacto_obra_email").eq("id", form.obra_id).single();
-        // Usar email de la obra si existe, si no usar el admin como destinatario principal
-        const toEmail = obraEmail?.contacto_obra_email || "lauroba.eneko@gmail.com";
-        await fetch("/api/partes/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parteId: id, toEmail }),
-        });
-      } else {
-        // Sin obra asociada: enviar directamente al admin
-        await fetch("/api/partes/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parteId: id, toEmail: "lauroba.eneko@gmail.com" }),
-        });
-      }
-    } catch { /* ignorar errores de email para no bloquear el flujo */ }
+      await fetch("/api/partes/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parteId: id }),
+      });
+    } catch (e) { console.error("[firma] error email:", e); }
     setSendingEmail(false);
   };
 
@@ -436,15 +421,7 @@ export default function ParteDetallePage() {
           </div>
         )}
       </div>
-      {/* Input file fuera de cualquier contenedor flex — garantiza funcionamiento en iOS/Android galería */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-        className="hidden"
-        onChange={handleUploadFile}
-      />
+      {/* Input file fuera de contenedor flex — garantiza galería en iOS/Android */}
       <input
         ref={fileInputRef}
         type="file"
