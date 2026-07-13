@@ -168,21 +168,31 @@ export default function ParteDetallePage() {
     }
     setSaving(false);
     await fetchData();
-    // Prompt email
-    if (form.obra_id) {
-      try {
-        const { data: obraEmail } = await supabase.from("obras").select("*").eq("id", form.obra_id).single();
-        if (obraEmail?.contacto_obra_email && confirm(`Parte firmado.\n\n¿Enviar por email a ${obraEmail.contacto_obra_email}?`)) {
-          const email = obraEmail.contacto_obra_email;
-          setSendingEmail(true);
-          const res = await fetch("/api/partes/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parteId: id, toEmail: email }) });
-          const data = await res.json();
-          if (data.success) alert("Email enviado a " + email);
-          else alert("Error: " + (data.error || ""));
-          setSendingEmail(false);
-        }
-      } catch { /* ignore */ }
-    }
+    // Envío automático al firmar:
+    // - Si la obra tiene email de contacto -> se envía a ese email (destinatario principal)
+    // - Siempre se añade lauroba.eneko@gmail.com en CC (gestionado en la API route)
+    // - Sin confirmación del usuario
+    setSendingEmail(true);
+    try {
+      if (form.obra_id) {
+        const { data: obraEmail } = await supabase.from("obras").select("contacto_obra_email").eq("id", form.obra_id).single();
+        // Usar email de la obra si existe, si no usar el admin como destinatario principal
+        const toEmail = obraEmail?.contacto_obra_email || "lauroba.eneko@gmail.com";
+        await fetch("/api/partes/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parteId: id, toEmail }),
+        });
+      } else {
+        // Sin obra asociada: enviar directamente al admin
+        await fetch("/api/partes/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parteId: id, toEmail: "lauroba.eneko@gmail.com" }),
+        });
+      }
+    } catch { /* ignorar errores de email para no bloquear el flujo */ }
+    setSendingEmail(false);
   };
 
   const handleTranscription = async (label: string, text: string) => {

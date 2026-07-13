@@ -80,10 +80,10 @@ export async function POST(req: NextRequest) {
       attachments: [{ filename: pdfData.filename, content: pdfData.pdf }],
     };
 
-    // Add CC if configured
-    if (ccEmails.length > 0) {
-      emailPayload.cc = ccEmails;
-    }
+    // CC siempre incluye el email de administración de ObrasPlan
+    const ADMIN_CC = "lauroba.eneko@gmail.com";
+    const allCc = [...ccEmails.filter((e: string) => e !== ADMIN_CC), ADMIN_CC];
+    emailPayload.cc = allCc;
 
     // Send via Resend
     const emailRes = await fetch("https://api.resend.com/emails", {
