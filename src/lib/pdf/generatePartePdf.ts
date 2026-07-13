@@ -1,4 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+// sharp viene incluido con Next.js 14 — no necesita instalación separada
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const sharp = require("sharp") as typeof import("sharp").default;
 import { LOGO_BASE64 } from "@/lib/logo";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
@@ -257,7 +260,7 @@ export async function generatePartePdf(
         imgX = MARGIN + (w - MARGIN * 2 - imgW) / 2;
       }
 
-      // Descargar imagen desde Supabase
+      // Descargar y comprimir imagen antes de insertar en PDF
       try {
         const { data: signedData } = await supabase.storage
           .from("documentos")
@@ -265,17 +268,23 @@ export async function generatePartePdf(
 
         if (signedData?.signedUrl) {
           const resp = await fetch(signedData.signedUrl);
-          const buf  = await resp.arrayBuffer();
-          const b64  = Buffer.from(buf).toString("base64");
-          const ext  = foto.nombre_archivo.split(".").pop()?.toLowerCase() || "jpeg";
-          const mime = ext === "png" ? "PNG" : "JPEG";
-          const dataUri = `data:image/${ext === "png" ? "png" : "jpeg"};base64,${b64}`;
+          const rawBuf = Buffer.from(await resp.arrayBuffer());
+
+          // Comprimir con sharp: max 1200px, JPEG 72%
+          // Una foto de movil pasa de ~5MB a ~150-300KB
+          const compressed = await sharp(rawBuf)
+            .resize({ width: 1200, height: 1200, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 72, progressive: false })
+            .toBuffer();
+
+          const b64 = compressed.toString("base64");
+          const dataUri = `data:image/jpeg;base64,${b64}`;
 
           // Recuadro
           doc.setDrawColor(200, 200, 200);
           doc.setLineWidth(0.3);
           doc.roundedRect(imgX, rowY, imgW, imgH, 2, 2);
-          doc.addImage(dataUri, mime, imgX + 1, rowY + 1, imgW - 2, imgH - 8);
+          doc.addImage(dataUri, "JPEG", imgX + 1, rowY + 1, imgW - 2, imgH - 8);
 
           // Nombre del archivo
           doc.setFontSize(6);
@@ -286,7 +295,7 @@ export async function generatePartePdf(
             : foto.nombre_archivo;
           doc.text(shortName, imgX + imgW / 2, rowY + imgH - 2, { align: "center" });
         }
-      } catch { /* si falla una imagen, continuar */ }
+      } catch { /* si falla una imagen, continuar sin ella */ }
 
       // Avanzar y cuando completamos la fila 2 o es la última
       if (slot === 2 || i === fotos.length - 1) {

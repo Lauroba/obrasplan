@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const sharp = require("sharp") as typeof import("sharp").default;
 import { generatePartePdf } from "@/lib/pdf/generatePartePdf";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -65,9 +67,21 @@ export async function POST(req: NextRequest) {
         if (!signed?.signedUrl) continue;
         const resp = await fetch(signed.signedUrl);
         if (!resp.ok) continue;
-        const buf = await resp.arrayBuffer();
-        const b64 = Buffer.from(buf).toString("base64");
-        attachments.push({ filename: d.nombre_archivo, content: b64 });
+        const rawBuf = Buffer.from(await resp.arrayBuffer());
+        const isImage = d.tipo === "foto" || /\.(jpg|jpeg|png|webp)$/i.test(d.nombre_archivo);
+        let finalBuf = rawBuf;
+        let filename = d.nombre_archivo;
+        if (isImage) {
+          // Comprimir fotos antes de adjuntar: max 1600px, JPEG 75%
+          finalBuf = await sharp(rawBuf)
+            .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 75 })
+            .toBuffer();
+          // Asegurar extensión .jpg
+          filename = filename.replace(/\.(png|webp|heic|heif)$/i, ".jpg");
+        }
+        const b64 = finalBuf.toString("base64");
+        attachments.push({ filename, content: b64 });
       } catch { /* ignorar archivos que fallen */ }
     }
 
