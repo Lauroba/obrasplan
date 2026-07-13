@@ -225,34 +225,44 @@ export default function ParteDetallePage() {
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    // Capturar obra_id ANTES de cualquier await — React puede re-renderizar
+    // y cambiar form.obra_id mientras esperamos, borrando la obra del parte
+    const obraIdSnapshot = form.obra_id || null;
+    const userIdSnapshot = user?.id;
+    // Convertir FileList a Array para iterar sin depender del DOM
+    const fileArray = Array.from(files);
+    // Reset del input inmediatamente para permitir re-seleccion
+    e.target.value = "";
     setUploading(true);
-    let errors: string[] = [];
-    let success = 0;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      // Normalizar nombre: quitar acentos, espacios y caracteres especiales
-      // Supabase Storage rechaza nombres con estos caracteres
+    const errors: string[] = [];
+    for (const file of fileArray) {
       const safeName = file.name
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar acentos
-        .replace(/[^a-zA-Z0-9._-]/g, "_");               // reemplazar especiales
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `partes/${id}/${Date.now()}_${safeName}`;
       const { error: uploadErr } = await supabase.storage.from("documentos").upload(path, file);
       if (uploadErr) { errors.push(`${file.name}: ${uploadErr.message}`); continue; }
       const insertData: any = {
-        parte_id: id, nombre_archivo: file.name, // nombre original para mostrar
+        parte_id: id,
+        nombre_archivo: file.name,
         tipo: file.type.startsWith("image/") ? "foto" : file.type === "application/pdf" ? "pdf" : "documento",
-        categoria: "general", storage_path: path, tamano: file.size, mime_type: file.type, uploaded_by: user?.id,
+        categoria: "general",
+        storage_path: path,
+        tamano: file.size,
+        mime_type: file.type,
+        uploaded_by: userIdSnapshot,
       };
-      if (form.obra_id) insertData.obra_id = form.obra_id;
+      // Usar el snapshot capturado antes del primer await
+      if (obraIdSnapshot) insertData.obra_id = obraIdSnapshot;
       const { error: insertErr } = await (supabase.from("documentos") as any).insert(insertData);
-      if (insertErr) errors.push(`${file.name} (DB): ${insertErr.message}`);
-      else success++;
+      if (insertErr) errors.push(`${file.name} (BD): ${insertErr.message}`);
     }
     setUploading(false);
-    if (errors.length > 0) alert("Errores al subir:\n" + errors.join("\n"));
-    // Recargar solo documentos — no todo el formulario (evita sobreescribir form.obra_id)
-    const { data: docsR } = await (supabase.from("documentos") as any).select("*").eq("parte_id", id).order("created_at");
-    setDocumentos((docsR as any) || []);
+    if (errors.length > 0) alert("Errores:\n" + errors.join("\n"));
+    // Recargar solo documentos (no el formulario completo)
+    const { data: docsR } = await (supabase.from("documentos") as any)
+      .select("*").eq("parte_id", id).order("created_at");
+    setDocumentos((docsR as Documento[]) || []);
   };
   const handleOpenDoc = async (doc: Documento) => { const { data } = await supabase.storage.from("documentos").createSignedUrl(doc.storage_path, 300); if (data?.signedUrl) window.open(data.signedUrl, "_blank"); };
   const handleDeleteDoc = async (doc: Documento) => { await supabase.storage.from("documentos").remove([doc.storage_path]); await (supabase.from("documentos") as any).delete().eq("id", doc.id); fetchData(); };
@@ -360,15 +370,8 @@ export default function ParteDetallePage() {
 
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-surface-900">Documentos</h2>
-            <label className={`relative flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg cursor-pointer ${uploading ? "bg-brand-400 opacity-60 pointer-events-none" : "bg-brand-500 hover:bg-brand-600"}`}
-              style={{ minWidth: 60, minHeight: 32 }}>
+            <label htmlFor="parte-file-input" className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg cursor-pointer ${uploading ? "bg-brand-400 opacity-60 pointer-events-none" : "bg-brand-500 hover:bg-brand-600"}`}>
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,image/*,application/pdf"
-                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }}
-                onChange={handleUploadFile}
-              />
             </label>
           </div>
           {documentos.length === 0 ? <p className="text-xs text-surface-400 text-center py-4">Sin documentos</p> : (
@@ -419,6 +422,14 @@ export default function ParteDetallePage() {
         )}
       </div>
 
+    {/* Input file nativo — id fijo para label, fuera de contenedores React */}
+    <input
+      id="parte-file-input"
+      type="file"
+      accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+      style={{ position: "fixed", top: "-9999px", left: "-9999px", width: "1px", height: "1px", opacity: 0 }}
+      onChange={handleUploadFile}
+    />
     </div></AppLayout>
   );
 }
