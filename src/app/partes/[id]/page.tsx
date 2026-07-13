@@ -433,4 +433,3 @@ export default function ParteDetallePage() {
     </div></AppLayout>
   );
 }
-}
