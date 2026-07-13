@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp = require("sharp") as typeof import("sharp").default;
+/* eslint-disable @typescript-eslint/no-explicit-any */
+let sharp: any;
+try { sharp = require("sharp"); } catch { sharp = null; }
 import { generatePartePdf } from "@/lib/pdf/generatePartePdf";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -73,10 +74,12 @@ export async function POST(req: NextRequest) {
         let filename = d.nombre_archivo;
         if (isImage) {
           // Comprimir fotos antes de adjuntar: max 1600px, JPEG 75%
-          finalBuf = await sharp(rawBuf)
-            .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-            .jpeg({ quality: 75 })
-            .toBuffer();
+          if (sharp) {
+            finalBuf = await sharp(rawBuf)
+              .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+              .jpeg({ quality: 75 })
+              .toBuffer();
+          }
           // Asegurar extensión .jpg
           filename = filename.replace(/\.(png|webp|heic|heif)$/i, ".jpg");
         }

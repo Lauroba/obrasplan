@@ -360,11 +360,15 @@ export default function ParteDetallePage() {
 
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-surface-900">Documentos</h2>
-            <label className={`relative flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg cursor-pointer overflow-hidden ${uploading ? "bg-brand-400 opacity-60 pointer-events-none" : "bg-brand-500 hover:bg-brand-600"}`}>
+            <label className={`relative flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg cursor-pointer ${uploading ? "bg-brand-400 opacity-60 pointer-events-none" : "bg-brand-500 hover:bg-brand-600"}`}
+              style={{ minWidth: 60, minHeight: 32 }}>
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir
-              <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }}
-                onChange={handleUploadFile} disabled={uploading} />
+              <input
+                type="file"
+                accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt,image/*,application/pdf"
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }}
+                onChange={handleUploadFile}
+              />
             </label>
           </div>
           {documentos.length === 0 ? <p className="text-xs text-surface-400 text-center py-4">Sin documentos</p> : (

@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-// sharp viene incluido con Next.js 14 — no necesita instalación separada
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp = require("sharp") as typeof import("sharp").default;
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// sharp viene con Next.js 14 — import dinámico para evitar error de tipos
+let sharp: any;
+try { sharp = require("sharp"); } catch { sharp = null; }
 import { LOGO_BASE64 } from "@/lib/logo";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
@@ -272,12 +273,17 @@ export async function generatePartePdf(
 
           // Comprimir con sharp: max 1200px, JPEG 72%
           // Una foto de movil pasa de ~5MB a ~150-300KB
-          const compressed = await sharp(rawBuf)
-            .resize({ width: 1200, height: 1200, fit: "inside", withoutEnlargement: true })
-            .jpeg({ quality: 72, progressive: false })
-            .toBuffer();
-
-          const b64 = compressed.toString("base64");
+          // Comprimir si sharp está disponible, sino usar original
+          let b64: string;
+          if (sharp) {
+            const compressed = await sharp(rawBuf)
+              .resize({ width: 1200, height: 1200, fit: "inside", withoutEnlargement: true })
+              .jpeg({ quality: 72, progressive: false })
+              .toBuffer();
+            b64 = compressed.toString("base64");
+          } else {
+            b64 = rawBuf.toString("base64");
+          }
           const dataUri = `data:image/jpeg;base64,${b64}`;
 
           // Recuadro
