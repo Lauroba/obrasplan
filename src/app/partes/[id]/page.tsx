@@ -225,16 +225,6 @@ export default function ParteDetallePage() {
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    // Save form first if obra changed
-    if (form.obra_id && form.obra_id !== parte?.obra_id) {
-      await (supabase.from("partes_diarios") as any).update({
-        obra_id: form.obra_id || null, fecha: form.fecha,
-        jefe_obra: form.jefe_obra || null, encargado_obra: form.encargado_obra || null,
-        responsable_empresa: form.responsable_empresa || null,
-        direccion: form.direccion || null, localidad: form.localidad || null, provincia: form.provincia || null,
-        observaciones: form.observaciones || null,
-      }).eq("id", id);
-    }
     setUploading(true);
     let errors: string[] = [];
     let success = 0;
@@ -260,7 +250,9 @@ export default function ParteDetallePage() {
     }
     setUploading(false);
     if (errors.length > 0) alert("Errores al subir:\n" + errors.join("\n"));
-    fetchData();
+    // Recargar solo documentos — no todo el formulario (evita sobreescribir form.obra_id)
+    const { data: docsR } = await (supabase.from("documentos") as any).select("*").eq("parte_id", id).order("created_at");
+    setDocumentos((docsR as any) || []);
   };
   const handleOpenDoc = async (doc: Documento) => { const { data } = await supabase.storage.from("documentos").createSignedUrl(doc.storage_path, 300); if (data?.signedUrl) window.open(data.signedUrl, "_blank"); };
   const handleDeleteDoc = async (doc: Documento) => { await supabase.storage.from("documentos").remove([doc.storage_path]); await (supabase.from("documentos") as any).delete().eq("id", doc.id); fetchData(); };
