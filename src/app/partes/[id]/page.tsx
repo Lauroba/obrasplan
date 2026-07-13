@@ -108,10 +108,11 @@ export default function ParteDetallePage() {
 
   // Si el operario cambia la fecha manualmente, resolver la obra segun su asignacion de ese dia
   useEffect(() => {
-    if (isAdmin || !fechaChangedManually.current) return;
+    // Proteccion: no ejecutar si misAsignaciones aun no cargo (evita borrar obra_id en Android)
+    if (isAdmin || !fechaChangedManually.current || misAsignaciones.length === 0) return;
     if (obrasDelDia.length === 1) {
       handleObraChange(obrasDelDia[0].id);
-    } else if (!obrasDelDia.some((o: any) => o.id === form.obra_id)) {
+    } else if (form.obra_id && !obrasDelDia.some((o: any) => o.id === form.obra_id)) {
       setForm((f) => ({ ...f, obra_id: "", direccion: "", localidad: "", provincia: "" }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -224,12 +225,18 @@ export default function ParteDetallePage() {
 
   const uploadFiles = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
-    // Capturar obra_id ANTES de cualquier await — React puede re-renderizar
-    // y cambiar form.obra_id mientras esperamos, borrando la obra del parte
+    // Capturar valores ANTES de cualquier await
     const obraIdSnapshot = form.obra_id || null;
     const userIdSnapshot = user?.id;
     const fileArray = Array.from(files);
     setUploading(true);
+    // Guardar obra_id en Supabase ahora — si Android recarga el componente
+    // al volver del file picker, fetchData traera el valor correcto de la BD
+    if (obraIdSnapshot) {
+      await (supabase.from("partes_diarios") as any)
+        .update({ obra_id: obraIdSnapshot })
+        .eq("id", id);
+    }
     const errors: string[] = [];
     for (const file of fileArray) {
       const safeName = file.name
