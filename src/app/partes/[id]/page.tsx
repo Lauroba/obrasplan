@@ -222,17 +222,13 @@ export default function ParteDetallePage() {
     setSendingEmail(false);
   };
 
-  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const uploadFiles = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     // Capturar obra_id ANTES de cualquier await — React puede re-renderizar
     // y cambiar form.obra_id mientras esperamos, borrando la obra del parte
     const obraIdSnapshot = form.obra_id || null;
     const userIdSnapshot = user?.id;
-    // Convertir FileList a Array para iterar sin depender del DOM
     const fileArray = Array.from(files);
-    // Reset del input inmediatamente para permitir re-seleccion
-    e.target.value = "";
     setUploading(true);
     const errors: string[] = [];
     for (const file of fileArray) {
@@ -370,9 +366,24 @@ export default function ParteDetallePage() {
 
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-surface-900">Documentos</h2>
-            <label htmlFor="parte-file-input" className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg cursor-pointer ${uploading ? "bg-brand-400 opacity-60 pointer-events-none" : "bg-brand-500 hover:bg-brand-600"}`}>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                const inp = document.createElement("input");
+                inp.type = "file";
+                inp.accept = ".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt";
+                inp.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+                inp.onchange = (ev) => {
+                  uploadFiles((ev.target as HTMLInputElement).files);
+                  document.body.removeChild(inp);
+                };
+                document.body.appendChild(inp);
+                inp.click();
+              }}
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg ${uploading ? "bg-brand-400 opacity-60 cursor-not-allowed" : "bg-brand-500 hover:bg-brand-600 cursor-pointer"}`}>
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir
-            </label>
+            </button>
           </div>
           {documentos.length === 0 ? <p className="text-xs text-surface-400 text-center py-4">Sin documentos</p> : (
             <div className="space-y-1.5">{documentos.map((doc) => {
@@ -422,14 +433,6 @@ export default function ParteDetallePage() {
         )}
       </div>
 
-    {/* Input file nativo — id fijo para label, fuera de contenedores React */}
-    <input
-      id="parte-file-input"
-      type="file"
-      accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-      style={{ position: "fixed", top: "-9999px", left: "-9999px", width: "1px", height: "1px", opacity: 0 }}
-      onChange={handleUploadFile}
-    />
     </div></AppLayout>
   );
 }
