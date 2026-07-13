@@ -15,7 +15,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   CalendarRange, ChevronLeft, ChevronRight, Users, Truck,
   Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2, Search
-} from "lucide-react";
+, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
 import CellNote from "@/components/planificacion/CellNote";
@@ -29,9 +29,9 @@ type ResourceInfo = { nombre: string; foto_url: string | null; tipo: RecursoTipo
 
 const TIPO_ICON: Record<string, typeof Users> = { humano: Users, vehiculo: Truck, obra: Building2 };
 const TIPO_BG: Record<string, string> = { humano: "bg-violet-100 text-violet-700", vehiculo: "bg-teal-100 text-teal-700", obra: "bg-brand-100 text-brand-700" };
-const DAY_WIDTHS: Record<ViewMode, number> = { week: 96, month: 36, year: 16 };
+const DAY_WIDTHS: Record<ViewMode, number> = { week: 110, month: 40, year: 18 };
 const DAYS_COUNT: Record<ViewMode, number> = { week: 7, month: 31, year: 364 };
-const LABEL_W = 185;
+const LABEL_W = 210;
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "vehiculo"];
 const SIN_ASIGNAR_ID = "SIN_ASIGNAR"; // ID virtual para la fila especial, nunca existe en BD
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -66,9 +66,9 @@ function PanelItem({ dragId, nombre, foto_url, color, detail, count, iconType }:
 }
 
 // ---- Droppable Cell for Vista Obras ----
-const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo, onRemove, dw, conflictResources }: {
+const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo, onRemove, dw, conflictResources, puedeEliminar }: {
   obraId: string; dateStr: string; assignments: Asignacion[]; resInfo: Record<string, ResourceInfo>;
-  onRemove: (id: string) => void; dw: number; conflictResources: Set<string>;
+  onRemove: (id: string) => void; dw: number; conflictResources: Set<string>; puedeEliminar: boolean;
 }) {
   const cid = `cell-${obraId}|${dateStr}`;
   const { setNodeRef, isOver } = useDroppable({ id: cid });
@@ -83,21 +83,22 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
           const rkey = `${a.recurso_tipo}|${a.recurso_id}`;
           const info = resInfo[rkey];
           const isConflict = conflictResources.has(`${rkey}|${dateStr}`);
+          const conflictRing = isConflict ? "ring-2 ring-red-400 ring-offset-1" : "";
           return info?.foto_url ? (
             <img key={a.id} src={info.foto_url} alt={info.nombre}
-              title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
-              className={cn("rounded-full object-cover cursor-pointer", dw > 60 ? "w-6 h-6" : "w-4 h-4",
-                isConflict ? "ring-2 ring-red-400 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
-              onClick={() => onRemove(a.id)} />
+              title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}${puedeEliminar ? "\nClic para quitar" : ""}`}
+              className={cn("rounded-full object-cover", dw > 60 ? "w-6 h-6" : "w-4 h-4",
+                puedeEliminar ? "cursor-pointer" : "cursor-default",
+                conflictRing || (puedeEliminar ? "hover:ring-2 hover:ring-red-300" : ""))}
+              onClick={() => puedeEliminar && onRemove(a.id)} />
           ) : (
             <div key={a.id}
-              title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
-              className={cn("rounded-full flex items-center justify-center font-bold cursor-pointer",
+              title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}${puedeEliminar ? "\nClic para quitar" : ""}`}
+              className={cn("rounded-full bg-violet-200 text-violet-800 flex items-center justify-center font-bold",
                 dw > 60 ? "w-6 h-6 text-[8px]" : "w-4 h-4 text-[6px]",
-                isConflict
-                  ? "bg-violet-200 text-violet-800 ring-2 ring-red-400 ring-offset-1"
-                  : "bg-violet-200 text-violet-800 hover:ring-2 hover:ring-red-400")}
-              onClick={() => onRemove(a.id)}>{info?.initials || "?"}</div>
+                puedeEliminar ? "cursor-pointer" : "cursor-default",
+                conflictRing || (puedeEliminar ? "hover:ring-2 hover:ring-red-300" : ""))}
+              onClick={() => puedeEliminar && onRemove(a.id)}>{info?.initials || "?"}</div>
           );
         })}
       </div>
@@ -107,20 +108,22 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
           const info = resInfo[rkey];
           const Icon = TIPO_ICON[a.recurso_tipo];
           const isConflict = conflictResources.has(`${rkey}|${dateStr}`);
+          const conflictRingO = isConflict ? "ring-2 ring-red-400 ring-offset-1" : "";
           return info?.foto_url ? (
             <img key={a.id} src={info.foto_url} alt={info.nombre}
-              title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
-              className={cn("w-4 h-4 rounded-full object-cover cursor-pointer",
-                isConflict ? "ring-2 ring-red-400 ring-offset-1" : "hover:ring-2 hover:ring-red-400")}
-              onClick={() => onRemove(a.id)} />
+              title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}${puedeEliminar ? "\nClic para quitar" : ""}`}
+              className={cn("w-4 h-4 rounded-full object-cover",
+                puedeEliminar ? "cursor-pointer" : "cursor-default",
+                conflictRingO || (puedeEliminar ? "hover:ring-2 hover:ring-red-300" : ""))}
+              onClick={() => puedeEliminar && onRemove(a.id)} />
           ) : (
             <div key={a.id}
-              title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}\nClic para quitar`}
-              className={cn("w-4 h-4 rounded-full flex items-center justify-center cursor-pointer",
-                isConflict
-                  ? cn(TIPO_BG[a.recurso_tipo], "ring-2 ring-red-400 ring-offset-1")
-                  : cn(TIPO_BG[a.recurso_tipo], "hover:ring-2 hover:ring-red-400"))}
-              onClick={() => onRemove(a.id)}>
+              title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}${puedeEliminar ? "\nClic para quitar" : ""}`}
+              className={cn("w-4 h-4 rounded-full flex items-center justify-center",
+                TIPO_BG[a.recurso_tipo],
+                puedeEliminar ? "cursor-pointer" : "cursor-default",
+                conflictRingO || (puedeEliminar ? "hover:ring-2 hover:ring-red-300" : ""))}
+              onClick={() => puedeEliminar && onRemove(a.id)}>
               <Icon className="w-2 h-2 text-white" />
             </div>
           );
@@ -165,11 +168,11 @@ const RrhhCell = memo(function RrhhCell({ recursoId, dateStr, personAssignments,
 });
 
 // ---- Fila SIN ASIGNAR (virtual, siempre primera, no reordenable) ----
-function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWeekend, isToday }: {
+function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWeekend, isToday, puedeEliminar }: {
   dateStrs: string[]; days: Date[];
   assignGrid: Record<string, Asignacion[]>; resInfo: Record<string, ResourceInfo>;
   onRemove: (id: string) => void; dw: number;
-  isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
+  isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean; puedeEliminar: boolean;
 }) {
   return (
     <div className="flex border-b-2 border-amber-200 bg-amber-50/40">
@@ -187,7 +190,7 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
           <div key={ds} style={{ width: dw, minWidth: dw }}
             className={cn("border-r border-amber-100 relative",
               isToday(day) ? "bg-brand-50/20" : isWeekend(day) ? "bg-amber-50/60" : "")}>
-            <div className="h-full min-h-[38px] flex flex-col items-center justify-center gap-0.5 p-0.5 overflow-hidden">
+            <div className="h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 p-0.5 overflow-hidden">
               {/* RRHH sin asignar ese día */}
               <div className="flex flex-wrap gap-0.5 justify-center">
                 {personas.map((a) => {
@@ -233,22 +236,22 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
 }
 
 // ---- Sortable Row for Vista Obras ----
-function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved }: {
+function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved, puedeEliminar }: {
   obra: Obra; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
   obraRange?: { min: string; max: string }; resInfo: Record<string, ResourceInfo>;
   conflictResources: Set<string>; onRemove: (id: string) => void; onArchive: (id: string, v: boolean) => void;
   onAddManual: (obraId: string, obraName: string) => void; onChangeEstado: (obraId: string, estadoId: string) => void;
   estados: EstadoObra[]; dw: number; isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
-  notas: Record<string, any>; onNoteSaved: () => void;
+  notas: Record<string, any>; onNoteSaved: () => void; puedeEliminar: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: obra.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
     <div ref={setNodeRef} style={style} className={cn("flex border-b border-surface-100 group bg-white", obra.archivada && "opacity-50")}>
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
-        <div {...attributes} {...listeners} className="px-1 py-2 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
+        <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
         <div className="w-2 h-2 rounded-full shrink-0 mr-1.5" style={{ backgroundColor: obra.color || "#DC2626" }} />
-        <div className="flex-1 min-w-0 py-1 pr-1">
+        <div className="flex-1 min-w-0 py-1.5 pr-1">
           <Link href={`/obras/${obra.id}`} className="text-[11px] font-medium text-surface-900 hover:text-brand-600 truncate block" onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
           <select value={obra.estado_obra_id || ""} onChange={(e) => { e.stopPropagation(); onChangeEstado(obra.id, e.target.value); }}
             className="text-[9px] pl-0.5 pr-3 py-0 border-0 bg-transparent rounded cursor-pointer focus:outline-none appearance-none"
@@ -270,9 +273,9 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
           <div key={ds} style={{ width: dw, minWidth: dw }} className={cn("border-r border-surface-100 relative",
             isToday(day) ? "bg-brand-50/30" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             {inRange && <div className="absolute inset-0" style={{ backgroundColor: `${obra.color || "#DC2626"}08` }} />}
-            <div className="relative h-full min-h-[38px] group">
+            <div className="relative h-full min-h-[44px] group">
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
-                onRemove={onRemove} dw={dw} conflictResources={conflictResources} />
+                onRemove={onRemove} dw={dw} conflictResources={conflictResources} puedeEliminar={puedeEliminar} />
               <div className="absolute top-0 right-0.5 z-10">
                 <CellNote obraId={obra.id} fecha={ds} nota={notas[`${obra.id}|${ds}`] || null} onSaved={onNoteSaved} />
               </div>
@@ -295,7 +298,7 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
   return (
     <div ref={setNodeRef} style={style} className="flex border-b border-surface-100 bg-white">
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
-        <div {...attributes} {...listeners} className="px-1 py-2 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
+        <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
         {persona.foto_url ? <img src={persona.foto_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" /> :
           <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[10px] font-bold shrink-0">
             {persona.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
@@ -352,6 +355,8 @@ export default function PlanificacionPage() {
   const [activeDrag, setActiveDrag] = useState<{ nombre: string; foto_url?: string | null; color?: string; iconType: string } | null>(null);
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
   const [manualModal, setManualModal] = useState<{ obraId: string; obraName: string } | null>(null);
+  // Modal confirmación eliminación de asignación
+  const [removeConfirm, setRemoveConfirm] = useState<{ id: string; nombre: string } | null>(null);
   const [asignError, setAsignError] = useState<string | null>(null);
   const [manualForm, setManualForm] = useState({ recurso_tipo: "humano" as RecursoTipo, recurso_id: "", fecha_inicio: "", fecha_fin: "" }); // maquinaria y material eliminados del planificador
   const [manualSaving, setManualSaving] = useState(false);
@@ -597,7 +602,23 @@ export default function PlanificacionPage() {
     }
   };
 
-  const handleRemove = async (id: string) => { await supabase.from("asignaciones").delete().eq("id", id); fetchData(); };
+  // handleRemove: abre el modal de confirmación (nunca borra sin confirmar)
+  // También verifica que el usuario tiene permiso de asignar
+  const handleRemove = (id: string) => {
+    if (!puedeAsignar) return; // sin permiso: ignorar silenciosamente
+    // Buscar el nombre del recurso para mostrarlo en el modal
+    const asig = asignaciones.find((a) => a.id === id);
+    const rkey = asig ? `${asig.recurso_tipo}|${asig.recurso_id}` : null;
+    const nombre = rkey && resInfo[rkey] ? resInfo[rkey].nombre : "este recurso";
+    setRemoveConfirm({ id, nombre });
+  };
+  // handleRemoveConfirmed: elimina la asignación tras confirmación
+  const handleRemoveConfirmed = async () => {
+    if (!removeConfirm) return;
+    await supabase.from("asignaciones").delete().eq("id", removeConfirm.id);
+    setRemoveConfirm(null);
+    fetchData();
+  };
   const handleArchive = async (id: string, v: boolean) => {
     const update: any = { archivada: v };
     // When archiving, set estado to "Terminada/Cerrada"
@@ -845,13 +866,13 @@ export default function PlanificacionPage() {
                         dateStrs={dateStrs} days={days}
                         assignGrid={displayGrid} resInfo={resInfo}
                         onRemove={handleRemove} dw={dw}
-                        isWeekend={isWeekendFn} isToday={isTodayFn}
+                        isWeekend={isWeekendFn} isToday={isTodayFn} puedeEliminar={puedeAsignar}
                       />
                       <SortableContext key={obraIds.join(",")} items={obraIds} strategy={verticalListSortingStrategy}>
                         {sortedObras.map((obra) => (
                           <ObraRow key={obra.id} obra={obra} dateStrs={dateStrs} days={days}
                             assignGrid={displayGrid} obraRange={obraRanges[obra.id]} resInfo={resInfo}
-                            conflictResources={conflictResources} onRemove={handleRemove} onArchive={handleArchive}
+                            conflictResources={conflictResources} puedeEliminar={puedeAsignar} onRemove={handleRemove} onArchive={handleArchive}
                             onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
                             onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
                             estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
@@ -973,6 +994,39 @@ export default function PlanificacionPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Modal: confirmar eliminación de asignación */}
+      {removeConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+             onClick={() => setRemoveConfirm(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 mx-4 max-w-sm w-full"
+               onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-surface-900">Eliminar asignación</h3>
+                <p className="text-xs text-surface-500 mt-0.5">Esta acción no se puede deshacer</p>
+              </div>
+            </div>
+            <p className="text-sm text-surface-700 mb-5">
+              ¿Confirmas que quieres quitar la asignación de{" "}
+              <span className="font-semibold">{removeConfirm.nombre}</span>?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setRemoveConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-surface-600 bg-surface-100 rounded-lg hover:bg-surface-200">
+                Cancelar
+              </button>
+              <button onClick={handleRemoveConfirmed}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
