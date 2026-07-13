@@ -24,7 +24,6 @@ export default function ParteDetallePage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuthStore();
   const supabase = createClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [parte, setParte] = useState<ParteDiario | null>(null);
   const [documentos, setDocumentos] = useState<Documento[]>([]);
@@ -260,7 +259,6 @@ export default function ParteDetallePage() {
       else success++;
     }
     setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
     if (errors.length > 0) alert("Errores al subir:\n" + errors.join("\n"));
     fetchData();
   };
@@ -370,9 +368,10 @@ export default function ParteDetallePage() {
 
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-surface-900">Documentos</h2>
-            <button onClick={() => { console.log("Click subir"); fileInputRef.current?.click(); }} disabled={uploading} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+            <label className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-lg cursor-pointer ${uploading ? "bg-brand-400 opacity-60 pointer-events-none" : "bg-brand-500 hover:bg-brand-600"}`}>
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}Subir
-            </button>
+              <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleUploadFile} disabled={uploading} />
+            </label>
           </div>
           {documentos.length === 0 ? <p className="text-xs text-surface-400 text-center py-4">Sin documentos</p> : (
             <div className="space-y-1.5">{documentos.map((doc) => {
@@ -421,15 +420,7 @@ export default function ParteDetallePage() {
           </div>
         )}
       </div>
-      {/* Input file fuera de contenedor flex — garantiza galería en iOS/Android */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-        className="hidden"
-        onChange={handleUploadFile}
-      />
+
     </div></AppLayout>
   );
 }
