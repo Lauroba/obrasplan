@@ -168,31 +168,15 @@ export default function ParteDetallePage() {
     }
     setSaving(false);
     await fetchData();
-    // Envío automático al firmar — sin confirmación del usuario.
-    // lauroba.eneko@gmail.com siempre recibe el email (gestionado en la API route).
+    // Envío automático al firmar — siempre a lauroba.eneko@gmail.com
     setSendingEmail(true);
     try {
-      // toEmail puede ser null si la obra no tiene email — la route lo maneja
-      let toEmail = "lauroba.eneko@gmail.com";
-      if (form.obra_id) {
-        const { data: obraEmail } = await supabase
-          .from("obras").select("contacto_obra_email").eq("id", form.obra_id).single();
-        if (obraEmail?.contacto_obra_email) {
-          toEmail = obraEmail.contacto_obra_email;
-        }
-      }
-      const res = await fetch("/api/partes/email", {
+      await fetch("/api/partes/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ parteId: id, toEmail }),
+        body: JSON.stringify({ parteId: id }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error("[firma] Error email:", (err as any).error);
-      }
-    } catch (e) {
-      console.error("[firma] Error inesperado al enviar email:", e);
-    }
+    } catch (e) { console.error("[firma] error email:", e); }
     setSendingEmail(false);
   };
 
@@ -361,61 +345,7 @@ export default function ParteDetallePage() {
           </div>
         </div>
 
-        {/* Líneas */}
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-surface-900">Trabajos / Materiales</h2>
-            {isEditable && <button type="button" onClick={addLinea} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100"><Plus className="w-3.5 h-3.5" />Línea</button>}
-          </div>
-          {lineas.length === 0 ? <p className="text-sm text-surface-400 text-center py-4">Sin líneas</p> : isEditable ? (
-            <div className="space-y-2">
-              <div className="grid grid-cols-12 gap-2 px-2">
-                <div className="col-span-2 text-[10px] font-semibold text-surface-400 uppercase">Tipo</div>
-                <div className="col-span-3 text-[10px] font-semibold text-surface-400 uppercase">Concepto</div>
-                <div className="col-span-2 text-[10px] font-semibold text-surface-400 uppercase">Fabricante</div>
-                <div className="col-span-2 text-[10px] font-semibold text-surface-400 uppercase">Producto</div>
-                <div className="col-span-1 text-[10px] font-semibold text-surface-400 uppercase">Cant.</div>
-                <div className="col-span-1 text-[10px] font-semibold text-surface-400 uppercase">Uds.</div>
-                <div className="col-span-1"></div>
-              </div>
-              {lineas.map((l, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-surface-50 rounded-lg p-2 border border-surface-100">
-                  <div className="col-span-2"><select value={l.tipo_trabajo_id} onChange={(e) => { updateLinea(idx, "tipo_trabajo_id", e.target.value); const t = tiposTrabajo.find((tt) => tt.id === e.target.value); if (t && !l.concepto) updateLinea(idx, "concepto", t.nombre); }} className={icSm}><option value="">Tipo...</option>{tiposTrabajo.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select></div>
-                  <div className="col-span-3"><input type="text" value={l.concepto} onChange={(e) => updateLinea(idx, "concepto", e.target.value)} placeholder="Descripción" className={icSm} /></div>
-                  <div className="col-span-2"><input type="text" value={l.fabricante} onChange={(e) => updateLinea(idx, "fabricante", e.target.value)} placeholder="Fabricante" className={icSm} /></div>
-                  <div className="col-span-2"><input type="text" value={l.producto} onChange={(e) => updateLinea(idx, "producto", e.target.value)} placeholder="Producto" className={icSm} /></div>
-                  <div className="col-span-1"><input type="number" value={l.cantidad} onChange={(e) => updateLinea(idx, "cantidad", e.target.value)} step="any" className={icSm} /></div>
-                  <div className="col-span-1"><input type="text" value={l.unidades} onChange={(e) => updateLinea(idx, "unidades", e.target.value)} placeholder="uds" className={icSm} /></div>
-                  <div className="col-span-1 flex justify-center"><button type="button" onClick={() => removeLinea(idx)} className="p-1 rounded text-surface-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button></div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-surface-200">
-                <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Concepto</th>
-                <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Tipo</th>
-                <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Fabricante</th>
-                <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Producto</th>
-                <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Cant.</th>
-                <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Uds.</th>
-              </tr></thead>
-              <tbody>{lineas.map((l, i) => {
-                const tipo = tiposTrabajo.find((t) => t.id === l.tipo_trabajo_id);
-                return (
-                  <tr key={i} className="border-b border-surface-50">
-                    <td className="py-2 px-2 font-medium text-surface-900">{l.concepto}</td>
-                    <td className="py-2 px-2 text-surface-600">{tipo?.nombre || "—"}</td>
-                    <td className="py-2 px-2 text-surface-600">{l.fabricante || "—"}</td>
-                    <td className="py-2 px-2 text-surface-600">{l.producto || "—"}</td>
-                    <td className="py-2 px-2 text-right text-surface-900 font-medium">{l.cantidad || "—"}</td>
-                    <td className="py-2 px-2 text-surface-600">{l.unidades || "—"}</td>
-                  </tr>
-                );
-              })}</tbody>
-            </table>
-          )}
-        </div>
+
 
         {/* Observaciones */}
         <div className="card p-6">
@@ -424,14 +354,7 @@ export default function ParteDetallePage() {
             rows={5} placeholder="Observaciones, transcripciones de audio..." className={(isEditable ? ic : icDisabled) + " resize-y font-mono text-xs"} />
         </div>
 
-        {/* Firmas */}
-        <div className="card p-6">
-          <h2 className="text-sm font-semibold text-surface-900 mb-4">Firmas</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <SignatureCanvas label="Cliente" value={firmaCliente} onChange={setFirmaCliente} disabled={!isEditable} />
-            <SignatureCanvas label={`Responsable — ${form.responsable_empresa || "Empresa"}`} value={firmaResp} onChange={setFirmaResp} disabled={!isEditable} />
-          </div>
-        </div>
+
 
         {/* Documentos */}
         <div className="card p-6">
@@ -469,20 +392,26 @@ export default function ParteDetallePage() {
           <AudioRecorder parteId={id} audios={audios} onChanged={fetchData} onTranscription={handleTranscription} disabled={false} />
         </div>
 
+        {/* Firma del cliente — al final del parte */}
+        <div className="card p-6">
+          <h2 className="text-sm font-semibold text-surface-900 mb-4">Firma del cliente</h2>
+          <SignatureCanvas label="Cliente" value={firmaCliente} onChange={setFirmaCliente} disabled={!isEditable} />
+        </div>
+
         {/* Actions */}
         {isEditable && (
           <div className="flex items-center justify-between pb-6">
-            {(!firmaResp || !firmaCliente) && (
+            {!firmaCliente && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
-                ⚠ Para firmar se necesitan ambas firmas{!firmaResp ? " (falta responsable)" : ""}{!firmaCliente ? " (falta cliente)" : ""}
+                ⚠ Se necesita la firma del cliente para firmar el parte
               </p>
             )}
-            {firmaResp && firmaCliente && <div />}
+            {firmaCliente && <div />}
             <div className="flex items-center gap-3 ml-auto">
             <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-surface-700 bg-surface-200 rounded-lg hover:bg-surface-300 disabled:opacity-60">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}<Save className="w-4 h-4" />Guardar
             </button>
-            <button onClick={handleFirmar} disabled={saving || !firmaResp || !firmaCliente} title={!firmaResp || !firmaCliente ? "Ambas firmas son obligatorias" : ""} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-60">
+            <button onClick={handleFirmar} disabled={saving || !firmaCliente} title={!firmaCliente ? "Se necesita la firma del cliente" : ""} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-60">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}<CheckCircle2 className="w-4 h-4" />Firmar
             </button>
             </div>
