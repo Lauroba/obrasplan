@@ -55,7 +55,16 @@ export default function DashboardPage() {
         supabase.from("tareas").select("*, obra:obras(nombre, color), tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre)").eq("estado", "pendiente").order("fecha_limite", { ascending: true, nullsFirst: false }),
         supabase.from("obras").select("*, estado_custom:estados_obra(*), cliente:clientes(nombre)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
-        supabase.from("asignaciones").select("*").limit(10000),
+        (() => {
+          // Cargar asignaciones de la semana visible + margen de 30 dias
+          const d = new Date();
+          const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          const mon = new Date(d); mon.setDate(diff - 30);
+          const sun = new Date(d); sun.setDate(diff + 37);
+          const from = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
+          const to   = `${sun.getFullYear()}-${String(sun.getMonth()+1).padStart(2,'0')}-${String(sun.getDate()).padStart(2,'0')}`;
+          return supabase.from("asignaciones").select("*").gte("fecha_fin", from).lte("fecha_inicio", to).limit(5000);
+        })(),
         supabase.from("recursos_humanos").select("id, nombre, asignable").eq("activo", true),
         Promise.resolve({ data: [] }),  // maquinaria eliminada del planificador
         supabase.from("vehiculos").select("id, nombre"),
@@ -190,10 +199,19 @@ export default function DashboardPage() {
 
   useEffect(() => { if (!loading) computeAssignments(); }, [computeAssignments, loading]);
 
-  const navigateDate = (dir: number) => {
+  const navigateDate = async (dir: number) => {
     const d = new Date(assigDate);
     d.setDate(d.getDate() + (assigView === "dia" ? dir : dir * 7));
     setAssigDate(d);
+    // Recargar asignaciones para la nueva semana
+    const supabase = createClient();
+    const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const mon = new Date(d); mon.setDate(diff - 7);
+    const sun = new Date(d); sun.setDate(diff + 14);
+    const fmt = (x: Date) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+    const { data } = await supabase.from("asignaciones").select("*")
+      .gte("fecha_fin", fmt(mon)).lte("fecha_inicio", fmt(sun)).limit(5000);
+    if (data) setAllAsignaciones(data);
   };
   const goToday = () => setAssigDate(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
