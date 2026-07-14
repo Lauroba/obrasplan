@@ -42,6 +42,7 @@ export default function DashboardPage() {
   const [assigLoading, setAssigLoading] = useState(false);
   const [allAsignaciones, setAllAsignaciones] = useState<any[]>([]);
   const [rrhhNames, setRrhhNames] = useState<Record<string, string>>({});
+  const [rrhhAsignableIds, setRrhhAsignableIds] = useState<Set<string>>(new Set());
   const [obraMap, setObraMap] = useState<Record<string, any>>({});
 
   // Fetch main data — con botón refresh manual
@@ -55,7 +56,7 @@ export default function DashboardPage() {
         supabase.from("obras").select("*, estado_custom:estados_obra(*), cliente:clientes(nombre)").eq("archivada", false).order("nombre"),
         supabase.from("partes_diarios").select("*, obra:obras(nombre, color), creator:users!partes_diarios_created_by_fkey(nombre)").eq("estado", "pendiente").order("fecha", { ascending: false }).limit(10),
         supabase.from("asignaciones").select("*").limit(10000),
-        supabase.from("recursos_humanos").select("id, nombre").eq("activo", true),
+        supabase.from("recursos_humanos").select("id, nombre, asignable").eq("activo", true),
         Promise.resolve({ data: [] }),  // maquinaria eliminada del planificador
         supabase.from("vehiculos").select("id, nombre"),
         supabase.from("conflictos_revisados").select("recurso_tipo, recurso_id, fecha"),
@@ -86,8 +87,10 @@ export default function DashboardPage() {
       setAllAsignaciones(asigR.data || []);
 
       const names: Record<string, string> = {};
-      (rrhhR.data || []).forEach((r: any) => names[r.id] = r.nombre);
+      const asignableIds = new Set<string>();
+      (rrhhR.data || []).forEach((r: any) => { names[r.id] = r.nombre; if (r.asignable !== false) asignableIds.add(r.id); });
       setRrhhNames(names);
+      setRrhhAsignableIds(asignableIds);
 
       const om: Record<string, any> = {};
       (obrasR.data || []).forEach((o: any) => om[o.id] = o);
@@ -289,7 +292,8 @@ export default function DashboardPage() {
                   const assignedIds = new Set((assigData[ds2] || []).map((_: any, idx: number) => idx));
                   const assignedNames = new Set((assigData[ds2] || []).map((p: any) => p.nombre));
                   const allRrhh = Object.entries(rrhhNames);
-                  const sinAsignar = allRrhh.filter(([, nombre]) => !assignedNames.has(nombre));
+                  // Mismos filtros que el planificador: activo=true Y asignable !== false
+                  const sinAsignar = allRrhh.filter(([id, nombre]) => rrhhAsignableIds.has(id) && !assignedNames.has(nombre));
                   if (sinAsignar.length === 0) return null;
                   return (
                     <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">

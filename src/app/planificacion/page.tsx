@@ -717,7 +717,7 @@ export default function PlanificacionPage() {
       }
     });
     const unassigned = rrhh.filter((r) => (r as any).asignable !== false && !assignedPeople.has(r.id));
-    const unassignedVehicles = vehiculos.filter((v) => (v as any).asignable !== false && !assignedVehicles.has(v.id));
+    const unassignedVehicles = vehList.filter((v) => (v as any).asignable !== false && !assignedVehicles.has(v.id));
     const isWeekday = mobileDay.getDay() >= 1 && mobileDay.getDay() <= 5;
 
     return (
