@@ -367,6 +367,29 @@ export default function DashboardPage() {
                     );
                   })()}
                 </div>
+                {/* Sin asignar esta semana */}
+                {(() => {
+                  // Union de IDs asignados en cualquier dia de la semana
+                  const assignedThisWeek = new Set<string>();
+                  assigDates.forEach((ds) => (assigData[ds] || []).forEach((p: any) => assignedThisWeek.add(p.id)));
+                  const sinAsignarSemana = Object.entries(rrhhNames)
+                    .filter(([id]) => rrhhAsignableIds.has(id) && !assignedThisWeek.has(id));
+                  if (sinAsignarSemana.length === 0) return null;
+                  return (
+                    <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <p className="text-[10px] font-semibold text-amber-700 uppercase mb-2">
+                        Sin asignar esta semana ({sinAsignarSemana.length})
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sinAsignarSemana.map(([id, nombre]) => (
+                          <span key={id} className="px-2 py-0.5 bg-white text-amber-800 rounded-lg text-[11px] font-medium border border-amber-200">
+                            {nombre.split(" ")[0]}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
