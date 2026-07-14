@@ -174,9 +174,10 @@ export default function DashboardPage() {
           personObras[a.recurso_id].add(a.obra_id);
         }
       });
-      const list: { nombre: string; obras: { nombre: string; color: string }[] }[] = [];
+      const list: { id: string; nombre: string; obras: { nombre: string; color: string }[] }[] = [];
       Object.entries(personObras).forEach(([pid, oids]) => {
         list.push({
+          id: pid,
           nombre: rrhhNames[pid] || "?",
           obras: Array.from(oids).map((oid) => ({ nombre: obraMap[oid]?.nombre || "?", color: obraMap[oid]?.color || "#999" })),
         });
@@ -289,11 +290,11 @@ export default function DashboardPage() {
                 {/* Sin asignar ese dia */}
                 {(() => {
                   const ds2 = toDS(assigDate);
-                  const assignedIds = new Set((assigData[ds2] || []).map((_: any, idx: number) => idx));
-                  const assignedNames = new Set((assigData[ds2] || []).map((p: any) => p.nombre));
+                  // Comparar por ID (no por nombre) para evitar falsos positivos
+                  const assignedIds = new Set((assigData[ds2] || []).map((p: any) => p.id));
                   const allRrhh = Object.entries(rrhhNames);
                   // Mismos filtros que el planificador: activo=true Y asignable !== false
-                  const sinAsignar = allRrhh.filter(([id, nombre]) => rrhhAsignableIds.has(id) && !assignedNames.has(nombre));
+                  const sinAsignar = allRrhh.filter(([id]) => rrhhAsignableIds.has(id) && !assignedIds.has(id));
                   if (sinAsignar.length === 0) return null;
                   return (
                     <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
