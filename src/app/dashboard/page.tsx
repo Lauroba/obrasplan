@@ -8,7 +8,7 @@ import type { RecursoTipo } from "@/lib/types/database";
 import {
   CheckCircle2, Clock, AlertTriangle, ListTodo,
   Building2, ClipboardList, Users, Truck, Calendar,
-  Loader2, ChevronLeft, ChevronRight, Warehouse, TrendingDown
+  Loader2, ChevronLeft, ChevronRight, Warehouse, TrendingDown, RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
@@ -44,7 +44,9 @@ export default function DashboardPage() {
   const [rrhhNames, setRrhhNames] = useState<Record<string, string>>({});
   const [obraMap, setObraMap] = useState<Record<string, any>>({});
 
-  // Fetch main data once
+  // Fetch main data — con botón refresh manual
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+  const refresh = () => setLastRefresh(Date.now());
   useEffect(() => {
     const fetchAll = async () => {
       const supabase = createClient();
@@ -128,7 +130,7 @@ export default function DashboardPage() {
       setLoading(false);
     };
     fetchAll();
-  }, [user]);
+  }, [user, lastRefresh]);
 
   const marcarRevisado = async (c: ConflictInfo) => {
     const supabase = createClient();
@@ -224,13 +226,18 @@ export default function DashboardPage() {
           {/* Asignaciones - navegable por día/semana */}
           <div className="card p-4 lg:p-5 lg:col-span-2 flex flex-col">
             <div className="flex items-center justify-between mb-3 shrink-0 flex-wrap gap-2">
-              <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-violet-500" />
-                {assigView === "dia"
-                  ? assigDate.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
-                  : `Semana del ${assigDates[0] ? parseDS(assigDates[0]).toLocaleDateString("es-ES", { day: "numeric", month: "long" }) : ""}`
-                }
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-surface-900 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-violet-500" />
+                  {assigView === "dia"
+                    ? assigDate.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
+                    : `Semana del ${assigDates[0] ? parseDS(assigDates[0]).toLocaleDateString("es-ES", { day: "numeric", month: "long" }) : ""}`
+                  }
+                </h2>
+                <button onClick={refresh} title="Actualizar datos" className="p-1 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-brand-500 transition-colors">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 {/* View toggle */}
                 <div className="flex bg-surface-100 rounded p-0.5">
@@ -258,6 +265,7 @@ export default function DashboardPage() {
               return people.length === 0 ? (
                 <p className="text-sm text-surface-400 text-center py-8">Sin asignaciones para este día</p>
               ) : (
+                <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 ">
                   {people.map((m, i) => (
                     <div key={i} className="flex items-center gap-2.5 p-2.5 bg-surface-50 rounded-lg border border-surface-100">
@@ -275,6 +283,26 @@ export default function DashboardPage() {
                     </div>
                   ))}
                 </div>
+                {/* Sin asignar ese dia */}
+                {(() => {
+                  const ds2 = toDS(assigDate);
+                  const assignedIds = new Set((assigData[ds2] || []).map((_: any, idx: number) => idx));
+                  const assignedNames = new Set((assigData[ds2] || []).map((p: any) => p.nombre));
+                  const allRrhh = Object.entries(rrhhNames);
+                  const sinAsignar = allRrhh.filter(([, nombre]) => !assignedNames.has(nombre));
+                  if (sinAsignar.length === 0) return null;
+                  return (
+                    <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <p className="text-[10px] font-semibold text-amber-700 uppercase mb-2">Sin asignar ({sinAsignar.length})</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sinAsignar.map(([id, nombre]) => (
+                          <span key={id} className="px-2 py-0.5 bg-white text-amber-800 rounded-lg text-[11px] font-medium border border-amber-200">{nombre.split(" ")[0]}</span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+                </>
               );
             })()}
 

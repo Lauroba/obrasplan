@@ -709,8 +709,15 @@ export default function PlanificacionPage() {
       return result;
     })();
     const assignedPeople = new Set<string>();
-    asignaciones.forEach((a) => { if (a.recurso_tipo === "humano" && a.fecha_inicio <= mobileDateStr && a.fecha_fin >= mobileDateStr) assignedPeople.add(a.recurso_id); });
+    const assignedVehicles = new Set<string>();
+    asignaciones.forEach((a) => {
+      if (a.fecha_inicio <= mobileDateStr && a.fecha_fin >= mobileDateStr) {
+        if (a.recurso_tipo === "humano") assignedPeople.add(a.recurso_id);
+        if (a.recurso_tipo === "vehiculo") assignedVehicles.add(a.recurso_id);
+      }
+    });
     const unassigned = rrhh.filter((r) => (r as any).asignable !== false && !assignedPeople.has(r.id));
+    const unassignedVehicles = vehiculos.filter((v) => (v as any).asignable !== false && !assignedVehicles.has(v.id));
     const isWeekday = mobileDay.getDay() >= 1 && mobileDay.getDay() <= 5;
 
     return (
@@ -771,11 +778,36 @@ export default function PlanificacionPage() {
               })}
             </div>
           )}
-          {/* Unassigned */}
-          {isWeekday && unassigned.length > 0 && (
+          {/* Sin asignar — personas y vehículos */}
+          {isWeekday && (unassigned.length > 0 || unassignedVehicles.length > 0) && (
             <div className="mt-4 bg-amber-50 rounded-xl border border-amber-200 p-4">
-              <p className="text-[10px] font-semibold text-amber-700 uppercase mb-2">Sin asignar ({unassigned.length})</p>
-              <div className="flex flex-wrap gap-1.5">{unassigned.map((r) => <span key={r.id} className="px-2 py-1 bg-white text-amber-800 rounded-lg text-[11px] font-medium border border-amber-200">{r.nombre.split(" ")[0]}</span>)}</div>
+              <p className="text-[10px] font-semibold text-amber-700 uppercase mb-2">
+                Sin asignar ({unassigned.length + unassignedVehicles.length})
+              </p>
+              {unassigned.length > 0 && (
+                <>
+                  <p className="text-[9px] text-amber-600 font-medium mb-1">Personas</p>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {unassigned.map((r) => (
+                      <span key={r.id} className="px-2 py-1 bg-white text-amber-800 rounded-lg text-[11px] font-medium border border-amber-200">
+                        {r.nombre.split(" ")[0]}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+              {unassignedVehicles.length > 0 && (
+                <>
+                  <p className="text-[9px] text-amber-600 font-medium mb-1">Vehículos</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {unassignedVehicles.map((v) => (
+                      <span key={v.id} className="px-2 py-1 bg-white text-amber-800 rounded-lg text-[11px] font-medium border border-amber-200">
+                        {(v as any).nombre}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
