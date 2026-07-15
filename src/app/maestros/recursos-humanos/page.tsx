@@ -12,7 +12,6 @@ import { useAuthStore } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { RecursoHumano } from "@/lib/types/database";
 import { Users, Loader2, ShieldCheck, UserX, UserCheck, Eye, EyeOff, CalendarOff } from "lucide-react";
-import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 
 interface RHWithUser extends RecursoHumano { user_role?: string; user_activo?: boolean; user_id?: string; }
@@ -42,6 +41,10 @@ export default function RecursosHumanosPage() {
   const { user } = useAuthStore();
   const [data, setData] = useState<RHWithUser[]>([]); const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false); const [form, setForm] = useState(emptyForm);
+  const [viewRecord, setViewRecord] = useState<RHWithUser | null>(null);
+  const [viewTab, setViewTab] = useState<"detalle" | "asignaciones">("detalle");
+  const [viewAsignaciones, setViewAsignaciones] = useState<any[]>([]);
+  const [loadingAsig, setLoadingAsig] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""); const [showPassword, setShowPassword] = useState(false);
   const [syncing, setSyncing] = useState(false); const [syncResult, setSyncResult] = useState("");
@@ -76,6 +79,18 @@ export default function RecursosHumanosPage() {
     setData(enriched); setLoading(false);
   }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const fetchAsignaciones = async (recursoId: string) => {
+    setLoadingAsig(true);
+    const { data } = await supabase
+      .from("asignaciones")
+      .select(`id, fecha_inicio, fecha_fin, observaciones, obra:obras(id, nombre, color, estado_custom:estados_obra(nombre, color))`)
+      .eq("recurso_tipo", "humano")
+      .eq("recurso_id", recursoId)
+      .order("fecha_inicio", { ascending: false });
+    setViewAsignaciones(data || []);
+    setLoadingAsig(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(""); setSaving(true);
@@ -184,7 +199,7 @@ export default function RecursosHumanosPage() {
 
   const columns: Column<RHWithUser>[] = [
     { key: "nombre", header: "Nombre", render: (item) => (
-      <Link href={`/maestros/recursos-humanos/${item.id}`} className="flex items-center gap-3 group">
+      <button onClick={() => { setViewRecord(item); setViewTab("detalle"); setViewAsignaciones([]); }} className="flex items-center gap-3 group text-left w-full">
         {item.foto_url ? <img src={item.foto_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" /> :
           <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-semibold shrink-0">{item.nombre.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}</div>}
         <div>
@@ -192,7 +207,7 @@ export default function RecursosHumanosPage() {
           {!item.user_activo && <span className="ml-2 text-[10px] text-red-500 font-medium">SIN ACCESO</span>}
           {(item as any).asignable === false && <span className="ml-1 text-[10px] text-amber-500 font-medium">NO PLANIF.</span>}
         </div>
-      </Link>
+      </button>
     )},
     { key: "perfil", header: "Perfil" },
     { key: "email", header: "Email" },
@@ -228,6 +243,120 @@ export default function RecursosHumanosPage() {
         onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setError(""); setModalOpen(true); } : undefined}
         onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" }); setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true); } : undefined}
         addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={isAdmin} onDelete={handleDelete} />
+      {/* Modal de vista (modo lectura) */}
+      <Modal open={!!viewRecord} onClose={() => setViewRecord(null)} title={viewRecord?.nombre || ""} size="lg">
+        {viewRecord && (
+          <div>
+            {/* Botón Editar en cabecera */}
+            {puedeEditar && (
+              <div className="flex justify-end mb-4 -mt-1">
+                <button onClick={() => {
+                  const item = viewRecord;
+                  setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" });
+                  setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setViewRecord(null); setModalOpen(true);
+                }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600">
+                  <Pencil className="w-3.5 h-3.5" />Editar
+                </button>
+              </div>
+            )}
+            {/* Pestañas */}
+            <div className="flex border-b border-surface-200 mb-4 gap-1 -mx-1">
+              {(["detalle", "asignaciones"] as const).map((t) => (
+                <button key={t} onClick={() => { setViewTab(t); if (t === "asignaciones" && viewAsignaciones.length === 0) fetchAsignaciones(viewRecord.id); }}
+                  className={cn("px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors", viewTab === t ? "border-brand-500 text-brand-600" : "border-transparent text-surface-500 hover:text-surface-700")}>
+                  {t === "detalle" ? "Detalle" : "Asignaciones"}
+                </button>
+              ))}
+            </div>
+
+            {/* PESTAÑA DETALLE */}
+            {viewTab === "detalle" && (
+              <div className="space-y-4">
+                <div className="flex items-start gap-5">
+                  {viewRecord.foto_url
+                    ? <img src={viewRecord.foto_url} alt="" className="w-16 h-16 rounded-xl object-cover border border-surface-200 shrink-0" />
+                    : <div className="w-16 h-16 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 text-xl font-bold border border-surface-200 shrink-0">{viewRecord.nombre.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}</div>
+                  }
+                  <div className="flex-1 grid grid-cols-2 gap-3">
+                    <div><p className="text-[10px] font-semibold text-surface-400 uppercase mb-0.5">Nombre</p><p className="text-sm font-medium text-surface-900">{viewRecord.nombre}</p></div>
+                    <div><p className="text-[10px] font-semibold text-surface-400 uppercase mb-0.5">Perfil / Puesto</p><p className="text-sm text-surface-700">{viewRecord.perfil || "—"}</p></div>
+                    <div><p className="text-[10px] font-semibold text-surface-400 uppercase mb-0.5">Teléfono</p><p className="text-sm text-surface-700">{viewRecord.telefono || "—"}</p></div>
+                    <div><p className="text-[10px] font-semibold text-surface-400 uppercase mb-0.5">Email</p><p className="text-sm text-surface-700">{viewRecord.email || "—"}</p></div>
+                  </div>
+                </div>
+                <div className="border-t border-surface-100 pt-3 grid grid-cols-2 gap-3">
+                  <div><p className="text-[10px] font-semibold text-surface-400 uppercase mb-0.5">Rol</p>
+                    <span className={cn("inline-flex px-2 py-0.5 rounded-full text-xs font-semibold", (viewRecord as any).user_rol_nombre === "Administrador" ? "bg-brand-100 text-brand-700" : "bg-surface-100 text-surface-700")}>{(viewRecord as any).user_rol_nombre || "Sin rol"}</span>
+                  </div>
+                  <div><p className="text-[10px] font-semibold text-surface-400 uppercase mb-0.5">Acceso</p>
+                    <span className={cn("flex items-center gap-1 text-sm", viewRecord.user_activo !== false ? "text-emerald-700" : "text-red-600")}>
+                      {viewRecord.user_activo !== false ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
+                      {viewRecord.user_activo !== false ? "Activo" : "Sin acceso"}
+                    </span>
+                  </div>
+                </div>
+                <div className="border-t border-surface-100 pt-3">
+                  <p className="text-[10px] font-semibold text-surface-400 uppercase mb-2">Disponibilidad en planificador</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><p className="text-[10px] text-surface-400 mb-0.5">Fecha inicio</p>
+                      <p className="text-sm text-surface-900">{(viewRecord as any).fecha_inicio ? (viewRecord as any).fecha_inicio.split("-").reverse().join("/") : "—"}</p>
+                    </div>
+                    <div><p className="text-[10px] text-surface-400 mb-0.5">Fecha fin</p>
+                      <p className="text-sm text-surface-900">{(viewRecord as any).fecha_fin ? (viewRecord as any).fecha_fin.split("-").reverse().join("/") : "Sin límite"}</p>
+                    </div>
+                    <div><p className="text-[10px] text-surface-400 mb-0.5">Asignable</p>
+                      <span className={cn("text-sm font-medium", (viewRecord as any).asignable !== false ? "text-emerald-700" : "text-red-500")}>
+                        {(viewRecord as any).asignable !== false ? "✓ Sí" : "✗ No"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PESTAÑA ASIGNACIONES */}
+            {viewTab === "asignaciones" && (
+              loadingAsig ? (
+                <div className="flex items-center justify-center py-10"><Loader2 className="w-6 h-6 text-brand-500 animate-spin" /></div>
+              ) : viewAsignaciones.length === 0 ? (
+                <div className="text-center py-10 text-sm text-surface-400">Este trabajador todavía no tiene asignaciones registradas.</div>
+              ) : (
+                <div className="overflow-x-auto -mx-1">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-surface-200 bg-surface-50">
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase px-3 py-2">Inicio</th>
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase px-3 py-2">Fin</th>
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase px-3 py-2">Obra</th>
+                      <th className="text-left text-[10px] font-semibold text-surface-400 uppercase px-3 py-2">Estado</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-surface-100">
+                      {viewAsignaciones.map((a: any) => (
+                        <tr key={a.id} className="hover:bg-surface-50">
+                          <td className="px-3 py-2 text-surface-600 whitespace-nowrap">{a.fecha_inicio?.split("-").reverse().join("/") || "—"}</td>
+                          <td className="px-3 py-2 text-surface-600 whitespace-nowrap">{a.fecha_fin?.split("-").reverse().join("/") || "—"}</td>
+                          <td className="px-3 py-2">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: a.obra?.color || "#DC2626" }} />
+                              <span className="font-medium text-surface-900">{a.obra?.nombre || "Obra eliminada"}</span>
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            {a.obra?.estado_custom ? (
+                              <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold text-white" style={{ backgroundColor: a.obra.estado_custom.color || "#6B7280" }}>{a.obra.estado_custom.nombre}</span>
+                            ) : <span className="text-surface-400">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-surface-400 px-3 py-2 border-t border-surface-100">{viewAsignaciones.length} asignación{viewAsignaciones.length !== 1 ? "es" : ""}</p>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </Modal>
+
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar trabajador" : "Nuevo trabajador"} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
