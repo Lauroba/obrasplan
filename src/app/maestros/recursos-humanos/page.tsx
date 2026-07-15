@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import DataTable, { Column } from "@/components/shared/DataTable";
 import Modal from "@/components/shared/Modal";
@@ -10,6 +11,7 @@ import { useAuthStore } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { RecursoHumano } from "@/lib/types/database";
 import { Users, Loader2, ShieldCheck, UserX, UserCheck, Eye, EyeOff, CalendarOff } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
 
 interface RHWithUser extends RecursoHumano { user_role?: string; user_activo?: boolean; user_id?: string; }
@@ -33,6 +35,21 @@ export default function RecursosHumanosPage() {
   const puedeEditar   = isAdmin || canDo("maestros_rrhh", "editar");
   const puedeEliminar = isAdmin || canDo("maestros_rrhh", "eliminar");
   const supabase = createClient();
+  const searchParams = useSearchParams();
+
+  // Si venimos desde la ficha de detalle con ?edit=id, abrir el modal de edición
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId || !puedeEditar) return;
+    // Esperar a que los datos estén cargados
+    const item = data.find((r) => r.id === editId);
+    if (!item) return;
+    setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" });
+    setEditingId(editId);
+    setEditingActivo(item.user_activo !== false);
+    setError("");
+    setModalOpen(true);
+  }, [searchParams, data, puedeEditar]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -161,15 +178,15 @@ export default function RecursosHumanosPage() {
 
   const columns: Column<RHWithUser>[] = [
     { key: "nombre", header: "Nombre", render: (item) => (
-      <div className="flex items-center gap-3">
+      <Link href={`/maestros/recursos-humanos/${item.id}`} className="flex items-center gap-3 group">
         {item.foto_url ? <img src={item.foto_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" /> :
           <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-semibold shrink-0">{item.nombre.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}</div>}
         <div>
-          <span className="font-medium text-surface-900">{item.nombre}</span>
+          <span className="font-medium text-surface-900 group-hover:text-brand-600 transition-colors">{item.nombre}</span>
           {!item.user_activo && <span className="ml-2 text-[10px] text-red-500 font-medium">SIN ACCESO</span>}
           {(item as any).asignable === false && <span className="ml-1 text-[10px] text-amber-500 font-medium">NO PLANIF.</span>}
         </div>
-      </div>
+      </Link>
     )},
     { key: "perfil", header: "Perfil" },
     { key: "email", header: "Email" },
