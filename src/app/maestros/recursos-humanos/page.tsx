@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { RecursoHumano } from "@/lib/types/database";
-import { Users, Loader2, ShieldCheck, UserX, UserCheck, Eye, EyeOff, CalendarOff } from "lucide-react";
+import { Users, Loader2, ShieldCheck, UserX, UserCheck, Eye, EyeOff, CalendarOff, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
 interface RHWithUser extends RecursoHumano { user_role?: string; user_activo?: boolean; user_id?: string; }
@@ -118,7 +118,7 @@ export default function RecursosHumanosPage() {
         const updatePayload: any = { fecha_inicio: form.fecha_inicio || new Date().toISOString().slice(0, 10) };
         if (!form.asignable) updatePayload.asignable = false;
         if (form.fecha_fin) updatePayload.fecha_fin = form.fecha_fin;
-        await (supabase.from("recursos_humanos") as any).update(updatePayload).eq("id", newR[0].id);
+        await (supabase.from("recursos_humanos") as any).update(updatePayload).eq("id", (newR[0] as any).id);
       }
     }
     setSaving(false); setModalOpen(false); fetchData();
