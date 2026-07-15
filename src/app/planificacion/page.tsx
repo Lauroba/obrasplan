@@ -487,8 +487,11 @@ export default function PlanificacionPage() {
     const weekDays = dateStrs.filter((ds) => { const d = new Date(ds + "T12:00:00"); const day = d.getDay(); return day >= 1 && day <= 5; });
 
     // RRHH sin asignar ese dia -> aparecen en la fila SIN_ASIGNAR_ID
-    rrhh.filter((r) => (r as any).asignable !== false).forEach((person) => {
+    // Solo si el recurso está disponible en ese día concreto (fecha_inicio/fin)
+    rrhh.forEach((person) => {
       weekDays.forEach((ds) => {
+        // Comprobar disponibilidad en el día concreto
+        if (!checkRrhhDisponibilidad(person, ds).disponible) return;
         const isAssigned = asignaciones.some((a) => a.recurso_tipo === "humano" && a.recurso_id === person.id && a.fecha_inicio <= ds && a.fecha_fin >= ds);
         if (!isAssigned) {
           const k = `${SIN_ASIGNAR_ID}|${ds}`;
@@ -544,7 +547,13 @@ export default function PlanificacionPage() {
         const recurso = rrhh.find((r) => r.id === recursoId);
         if (recurso) {
           const check = checkRrhhDisponibilidad(recurso, dateStr);
-          if (!check.disponible) { setAsignError(check.motivo); return; }
+          if (!check.disponible) {
+            const periodo = recurso.fecha_inicio
+              ? `Su periodo de disponibilidad es del ${formatFechaES(recurso.fecha_inicio)}${recurso.fecha_fin ? ` al ${formatFechaES(recurso.fecha_fin)}` : " en adelante"}.`
+              : "";
+            setAsignError(`${recurso.nombre} no está disponible el ${formatFechaES(dateStr)}. ${periodo}`.trim());
+            return;
+          }
         }
       }
       const { error: insErr } = await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: tipo as RecursoTipo, recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
@@ -564,7 +573,13 @@ export default function PlanificacionPage() {
       const recursoRrhh = rrhh.find((r) => r.id === recursoId);
       if (recursoRrhh) {
         const checkR = checkRrhhDisponibilidad(recursoRrhh, dateStr);
-        if (!checkR.disponible) { setAsignError(checkR.motivo); return; }
+        if (!checkR.disponible) {
+          const periodoR = recursoRrhh.fecha_inicio
+            ? `Su periodo de disponibilidad es del ${formatFechaES(recursoRrhh.fecha_inicio)}${recursoRrhh.fecha_fin ? ` al ${formatFechaES(recursoRrhh.fecha_fin)}` : " en adelante"}.`
+            : "";
+          setAsignError(`${recursoRrhh.nombre} no está disponible el ${formatFechaES(dateStr)}. ${periodoR}`.trim());
+          return;
+        }
       }
       const { error: insErr2 } = await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: "humano", recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
       if (insErr2) { setAsignError(`Error al asignar: ${insErr2.message} (code: ${insErr2.code})`); return; }
@@ -693,12 +708,15 @@ export default function PlanificacionPage() {
   const obrasPanelItems = useMemo(() => {
     const all: { dragId: string; nombre: string; foto_url?: string | null; detail?: string; count: number; iconType: string }[] = [];
     const search = resourceSearch.toLowerCase();
-    // Filtrar RRHH por disponibilidad en el rango de fechas visible
-    const primeraFecha = dateStrs[0] || toDS(new Date());
-    if (resourceFilter === "all" || resourceFilter === "humano") filtrarRrhhDisponibles(rrhh, primeraFecha).forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
+    // Filtrar RRHH por disponibilidad: mostrar si disponible en ALGÚN día de la semana
+    // La validación al hacer drop bloquea los días fuera del periodo del recurso
+    const rrhhDisponiblesSemana = rrhh.filter((r) =>
+      dateStrs.some((ds) => checkRrhhDisponibilidad(r, ds).disponible)
+    );
+    if (resourceFilter === "all" || resourceFilter === "humano") rrhhDisponiblesSemana.forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
     if (resourceFilter === "all" || resourceFilter === "vehiculo") vehList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === r.id).length, iconType: "vehiculo" }));
     return all.filter((r) => !search || r.nombre.toLowerCase().includes(search) || (r.detail || "").toLowerCase().includes(search)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, [resourceFilter, rrhh, vehList, asignaciones, resourceSearch]);
+  }, [resourceFilter, rrhh, vehList, asignaciones, resourceSearch, dateStrs]);
 
   // Panel items for Vista RRHH (filter asignable + search)
   const rrhhPanelItems = useMemo(() => {
