@@ -17,6 +17,7 @@ import {
   Plus, Loader2, Archive, Eye, X, GripVertical, AlertTriangle, Building2, Search
 , Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { checkRrhhDisponibilidad, filtrarRrhhDisponibles, formatFechaES } from "@/lib/utils/disponibilidadRrhh";
 import Link from "next/link";
 import CellNote from "@/components/planificacion/CellNote";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -538,6 +539,14 @@ export default function PlanificacionPage() {
       }
       const existing = assignGrid[`${obraId}|${dateStr}`]?.find((a) => a.recurso_tipo === tipo && a.recurso_id === recursoId);
       if (existing) return;
+      // Validar disponibilidad del recurso en la fecha del drop
+      if (tipo === "humano") {
+        const recurso = rrhh.find((r) => r.id === recursoId);
+        if (recurso) {
+          const check = checkRrhhDisponibilidad(recurso, dateStr);
+          if (!check.disponible) { setAsignError(check.motivo); return; }
+        }
+      }
       const { error: insErr } = await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: tipo as RecursoTipo, recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
       if (insErr) { setAsignError(`Error al asignar: ${insErr.message} (code: ${insErr.code})`); return; }
       fetchData(); return;
@@ -551,6 +560,12 @@ export default function PlanificacionPage() {
       if (!obraId || !recursoId || !dateStr) return;
       const existing = assignGrid[`${obraId}|${dateStr}`]?.find((a) => a.recurso_tipo === "humano" && a.recurso_id === recursoId);
       if (existing) return;
+      // Validar disponibilidad en la fecha del drop (Vista RRHH)
+      const recursoRrhh = rrhh.find((r) => r.id === recursoId);
+      if (recursoRrhh) {
+        const checkR = checkRrhhDisponibilidad(recursoRrhh, dateStr);
+        if (!checkR.disponible) { setAsignError(checkR.motivo); return; }
+      }
       const { error: insErr2 } = await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: "humano", recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
       if (insErr2) { setAsignError(`Error al asignar: ${insErr2.message} (code: ${insErr2.code})`); return; }
       fetchData(); return;
@@ -635,11 +650,18 @@ export default function PlanificacionPage() {
     setManualSaving(true);
     const s = new Date(manualForm.fecha_inicio); const e = new Date(manualForm.fecha_fin);
     const inserts: any[] = [];
+    const diasBloqueados: string[] = [];
     for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      // Saltar fines de semana (0=domingo, 6=sabado)
       if (d.getDay() === 0 || d.getDay() === 6) continue;
       const ds = toDS(d);
-      // Check if already assigned this resource to this obra on this day
+      // Validar disponibilidad del recurso RRHH en cada día
+      if (manualForm.recurso_tipo === "humano") {
+        const recursoM = rrhh.find((r) => r.id === manualForm.recurso_id);
+        if (recursoM) {
+          const checkM = checkRrhhDisponibilidad(recursoM, ds);
+          if (!checkM.disponible) { diasBloqueados.push(`${formatFechaES(ds)}: ${checkM.motivo}`); continue; }
+        }
+      }
       const alreadyExists = asignaciones.some((a) =>
         a.obra_id === manualModal.obraId && a.recurso_tipo === manualForm.recurso_tipo &&
         a.recurso_id === manualForm.recurso_id && a.fecha_inicio <= ds && a.fecha_fin >= ds
@@ -647,6 +669,10 @@ export default function PlanificacionPage() {
       if (!alreadyExists) {
         inserts.push({ obra_id: manualModal.obraId, recurso_tipo: manualForm.recurso_tipo, recurso_id: manualForm.recurso_id, fecha_inicio: ds, fecha_fin: ds });
       }
+    }
+    if (diasBloqueados.length > 0 && inserts.length === 0) {
+      setAsignError(diasBloqueados[0]);
+      setManualSaving(false); return;
     }
     if (inserts.length > 0) {
       const { error: insErr3 } = await supabase.from("asignaciones").insert(inserts);
@@ -656,7 +682,9 @@ export default function PlanificacionPage() {
   };
 
   const getResourceList = (tipo: RecursoTipo) => {
-    if (tipo === "humano") return rrhh.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
+    // Filtrar por disponibilidad en la fecha de inicio del modal
+    const fechaModal = manualForm.fecha_inicio || toDS(new Date());
+    if (tipo === "humano") return filtrarRrhhDisponibles(rrhh, fechaModal).map((r) => ({ id: r.id, nombre: r.nombre }));
     if (tipo === "vehiculo") return vehList.filter((r) => (r as any).asignable !== false).map((r) => ({ id: r.id, nombre: r.nombre }));
     return [];
   };
@@ -665,7 +693,9 @@ export default function PlanificacionPage() {
   const obrasPanelItems = useMemo(() => {
     const all: { dragId: string; nombre: string; foto_url?: string | null; detail?: string; count: number; iconType: string }[] = [];
     const search = resourceSearch.toLowerCase();
-    if (resourceFilter === "all" || resourceFilter === "humano") rrhh.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
+    // Filtrar RRHH por disponibilidad en el rango de fechas visible
+    const primeraFecha = dateStrs[0] || toDS(new Date());
+    if (resourceFilter === "all" || resourceFilter === "humano") filtrarRrhhDisponibles(rrhh, primeraFecha).forEach((r) => all.push({ dragId: `res-humano|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.perfil || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "humano" && a.recurso_id === r.id).length, iconType: "humano" }));
     if (resourceFilter === "all" || resourceFilter === "vehiculo") vehList.filter((r) => (r as any).asignable !== false).forEach((r) => all.push({ dragId: `res-vehiculo|${r.id}`, nombre: r.nombre, foto_url: r.foto_url, detail: r.matricula || undefined, count: asignaciones.filter((a) => a.recurso_tipo === "vehiculo" && a.recurso_id === r.id).length, iconType: "vehiculo" }));
     return all.filter((r) => !search || r.nombre.toLowerCase().includes(search) || (r.detail || "").toLowerCase().includes(search)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [resourceFilter, rrhh, vehList, asignaciones, resourceSearch]);
@@ -716,7 +746,7 @@ export default function PlanificacionPage() {
         if (a.recurso_tipo === "vehiculo") assignedVehicles.add(a.recurso_id);
       }
     });
-    const unassigned = rrhh.filter((r) => (r as any).asignable !== false && !assignedPeople.has(r.id));
+    const unassigned = filtrarRrhhDisponibles(rrhh, mobileDateStr).filter((r) => !assignedPeople.has(r.id));
     const unassignedVehicles = vehList.filter((v) => (v as any).asignable !== false && !assignedVehicles.has(v.id));
     const isWeekday = mobileDay.getDay() >= 1 && mobileDay.getDay() <= 5;
 

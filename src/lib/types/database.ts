@@ -51,6 +51,9 @@ export interface RecursoHumano {
   observaciones: string | null;
   foto_url: string | null;
   activo: boolean;
+  asignable: boolean;
+  fecha_inicio: string | null;   // DATE YYYY-MM-DD — inicio del periodo de disponibilidad
+  fecha_fin: string | null;      // DATE YYYY-MM-DD — fin del periodo (null = sin límite)
   created_at: string;
   updated_at: string;
 }
