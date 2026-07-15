@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-let sharp: any;
-try { sharp = require("sharp"); } catch { sharp = null; }
+// Sharp se carga dinámicamente para evitar warnings de webpack
+let sharp: any = null;
 import { generatePartePdf } from "@/lib/pdf/generatePartePdf";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
         let filename = d.nombre_archivo;
         if (isImage) {
           // Comprimir fotos antes de adjuntar: max 1600px, JPEG 75%
+          if (!sharp) { try { sharp = require("sharp"); } catch { sharp = null; } }
           if (sharp) {
             finalBuf = await sharp(rawBuf)
               .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })

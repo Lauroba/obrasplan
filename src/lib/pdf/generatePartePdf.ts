@@ -1,8 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// sharp viene con Next.js 14 — import dinámico para evitar error de tipos
-let sharp: any;
-try { sharp = require("sharp"); } catch { sharp = null; }
+let sharp: any = null;
 import { LOGO_BASE64 } from "@/lib/logo";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
@@ -275,6 +273,7 @@ export async function generatePartePdf(
           // Una foto de movil pasa de ~5MB a ~150-300KB
           // Comprimir si sharp está disponible, sino usar original
           let b64: string;
+          if (!sharp) { try { sharp = require("sharp"); } catch { sharp = null; } }
           if (sharp) {
             const compressed = await sharp(rawBuf)
               .resize({ width: 1200, height: 1200, fit: "inside", withoutEnlargement: true })

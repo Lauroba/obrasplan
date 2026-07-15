@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense, useRef } from "react";
+import type React from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import DataTable, { Column } from "@/components/shared/DataTable";
@@ -17,6 +18,25 @@ import { cn } from "@/lib/utils/cn";
 interface RHWithUser extends RecursoHumano { user_role?: string; user_activo?: boolean; user_id?: string; }
 
 const emptyForm = { nombre: "", perfil: "", telefono: "", email: "", password: "", role: "partes", rol_id: "", foto_url: "", asignable: true, fecha_inicio: new Date().toISOString().slice(0, 10), fecha_fin: "" };
+
+// Componente interno que usa useSearchParams — envuelto en Suspense
+function EditFromURL({ data, puedeEditar, setForm, setEditingId, setEditingActivo, setError, setModalOpen, emptyFormRef }: {
+  data: RHWithUser[]; puedeEditar: boolean;
+  setForm: (f: any) => void; setEditingId: (id: string | null) => void;
+  setEditingActivo: (v: boolean) => void; setError: (e: string) => void;
+  setModalOpen: (v: boolean) => void; emptyFormRef: React.MutableRefObject<typeof emptyForm>;
+}) {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId || !puedeEditar || data.length === 0) return;
+    const item = data.find((r) => r.id === editId);
+    if (!item) return;
+    setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" });
+    setEditingId(editId); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true);
+  }, [searchParams, data, puedeEditar]);
+  return null;
+}
 
 export default function RecursosHumanosPage() {
   const { user } = useAuthStore();
@@ -35,21 +55,7 @@ export default function RecursosHumanosPage() {
   const puedeEditar   = isAdmin || canDo("maestros_rrhh", "editar");
   const puedeEliminar = isAdmin || canDo("maestros_rrhh", "eliminar");
   const supabase = createClient();
-  const searchParams = useSearchParams();
-
-  // Si venimos desde la ficha de detalle con ?edit=id, abrir el modal de edición
-  useEffect(() => {
-    const editId = searchParams.get("edit");
-    if (!editId || !puedeEditar) return;
-    // Esperar a que los datos estén cargados
-    const item = data.find((r) => r.id === editId);
-    if (!item) return;
-    setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" });
-    setEditingId(editId);
-    setEditingActivo(item.user_activo !== false);
-    setError("");
-    setModalOpen(true);
-  }, [searchParams, data, puedeEditar]);
+  const emptyFormRef = { current: emptyForm };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -215,6 +221,9 @@ export default function RecursosHumanosPage() {
           <button onClick={() => setDeleteBlockedMsg(null)} className="text-amber-500 hover:text-amber-700 shrink-0">✕</button>
         </div>
       )}
+      <Suspense fallback={null}>
+        <EditFromURL data={data} puedeEditar={puedeEditar} setForm={setForm} setEditingId={setEditingId} setEditingActivo={setEditingActivo} setError={setError} setModalOpen={setModalOpen} emptyFormRef={emptyFormRef} />
+      </Suspense>
       <DataTable data={data} columns={columns} title="Trabajadores" loading={loading} searchPlaceholder="Buscar por nombre, perfil, email..." searchKeys={["nombre", "perfil", "email", "telefono"]}
         onAdd={isAdmin ? () => { setForm(emptyForm); setEditingId(null); setError(""); setModalOpen(true); } : undefined}
         onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" }); setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true); } : undefined}
