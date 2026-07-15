@@ -45,6 +45,11 @@ export default function RecursosHumanosPage() {
   const [viewTab, setViewTab] = useState<"detalle" | "asignaciones">("detalle");
   const [viewAsignaciones, setViewAsignaciones] = useState<any[]>([]);
   const [loadingAsig, setLoadingAsig] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [filtroDesde, setFiltroDesde] = useState("");
+  const [filtroHasta, setFiltroHasta] = useState("");
+  const [filtroObra, setFiltroObra] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""); const [showPassword, setShowPassword] = useState(false);
   const [syncing, setSyncing] = useState(false); const [syncResult, setSyncResult] = useState("");
@@ -79,6 +84,87 @@ export default function RecursosHumanosPage() {
     setData(enriched); setLoading(false);
   }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const asignacionesFiltradas = viewAsignaciones.filter((a: any) => {
+    if (filtroDesde && a.fecha_inicio < filtroDesde) return false;
+    if (filtroHasta && a.fecha_fin > filtroHasta) return false;
+    if (filtroObra && !(a.obra?.nombre || "").toLowerCase().includes(filtroObra.toLowerCase())) return false;
+    if (filtroEstado && !(a.obra?.estado_custom?.nombre || "").toLowerCase().includes(filtroEstado.toLowerCase())) return false;
+    return true;
+  });
+
+  const generatePdfAsignaciones = async () => {
+    setGenerandoPdf(true);
+    try {
+      const { default: jsPDF } = await import("jspdf");
+      const { default: autoTable } = await import("jspdf-autotable");
+      const { LOGO_BASE64 } = await import("@/lib/logo");
+      const trabajador = viewRecord!;
+      const filas = asignacionesFiltradas;
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const W = doc.internal.pageSize.getWidth();
+      const MARGIN = 15;
+      const hoy = new Date();
+      const fmt = (iso: string | null) => iso ? iso.split("-").reverse().join("/") : "—";
+      const fmtHoy = `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
+      const addHeader = () => {
+        doc.addImage(`data:image/jpeg;base64,${LOGO_BASE64}`, "JPEG", MARGIN, 8, 30, 20);
+        doc.setFontSize(7); doc.setTextColor(150);
+        doc.text("Loynek Soluciones Técnicas", MARGIN + 32, 14);
+        doc.setFontSize(13); doc.setFont("helvetica","bold"); doc.setTextColor(20);
+        doc.text("Informe de asignaciones por trabajador", W/2, 14, { align: "center" });
+        doc.setFontSize(9); doc.setFont("helvetica","normal"); doc.setTextColor(80);
+        doc.text(trabajador.nombre, W/2, 20, { align: "center" });
+        if (trabajador.perfil) { doc.setFontSize(8); doc.text(trabajador.perfil, W/2, 25, { align: "center" }); }
+        doc.setFontSize(7); doc.setTextColor(130);
+        doc.text(`Generado el ${fmtHoy}`, W - MARGIN, 14, { align: "right" });
+        if (filtroDesde || filtroHasta) {
+          const periodo = `Periodo: ${filtroDesde ? fmt(filtroDesde) : "inicio"} — ${filtroHasta ? fmt(filtroHasta) : "hoy"}`;
+          doc.text(periodo, W - MARGIN, 19, { align: "right" });
+        }
+        doc.setDrawColor(220); doc.setLineWidth(0.3); doc.line(MARGIN, 30, W - MARGIN, 30);
+      };
+      addHeader();
+      const body = filas.length === 0
+        ? [["", "Este trabajador no tiene asignaciones registradas para el periodo seleccionado.", "", ""]]
+        : filas.map((a: any) => [
+            fmt(a.fecha_inicio),
+            fmt(a.fecha_fin),
+            a.obra?.nombre || "Obra eliminada",
+            a.obra?.estado_custom?.nombre || "—",
+          ]);
+      (autoTable as any)(doc, {
+        startY: 34,
+        head: [["INICIO", "FIN", "OBRA", "ESTADO"]],
+        body,
+        margin: { left: MARGIN, right: MARGIN },
+        styles: { fontSize: 9, cellPadding: 3, lineColor: [220,220,220], lineWidth: 0.3 },
+        headStyles: { fillColor: [220,38,38], textColor: 255, fontStyle: "bold", fontSize: 8 },
+        alternateRowStyles: { fillColor: [250,250,250] },
+        columnStyles: {
+          0: { cellWidth: 28, halign: "center" },
+          1: { cellWidth: 28, halign: "center" },
+          2: { cellWidth: "auto" },
+          3: { cellWidth: 52, halign: "center" },
+        },
+        didDrawPage: (data: any) => {
+          if (data.pageNumber > 1) addHeader();
+          const pageCount = (doc as any).internal.getNumberOfPages();
+          doc.setFontSize(7); doc.setTextColor(130);
+          doc.text(`Página ${data.pageNumber} de ${pageCount}`, W/2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+        },
+      });
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7); doc.setTextColor(130);
+        doc.text(`Página ${i} de ${pageCount}`, W/2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+      }
+      const nombreArchivo = `asignaciones_${trabajador.nombre.replace(/\s+/g,"_")}_${fmtHoy.replace(/\//g,"-")}.pdf`;
+      doc.save(nombreArchivo);
+    } catch (err: any) { alert("Error al generar PDF: " + (err?.message || err)); }
+    setGenerandoPdf(false);
+  };
 
   const fetchAsignaciones = async (recursoId: string) => {
     setLoadingAsig(true);
@@ -199,7 +285,7 @@ export default function RecursosHumanosPage() {
 
   const columns: Column<RHWithUser>[] = [
     { key: "nombre", header: "Nombre", render: (item) => (
-      <button onClick={() => { setViewRecord(item); setViewTab("detalle"); setViewAsignaciones([]); }} className="flex items-center gap-3 group text-left w-full">
+      <button onClick={() => { setViewRecord(item); setViewTab("detalle"); setViewAsignaciones([]); setFiltroDesde(""); setFiltroHasta(""); setFiltroObra(""); setFiltroEstado(""); }} className="flex items-center gap-3 group text-left w-full">
         {item.foto_url ? <img src={item.foto_url} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" /> :
           <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-semibold shrink-0">{item.nombre.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}</div>}
         <div>
@@ -244,7 +330,7 @@ export default function RecursosHumanosPage() {
         onEdit={isAdmin ? (item) => { setForm({ nombre: item.nombre, perfil: item.perfil || "", telefono: item.telefono || "", email: item.email || "", password: "", role: item.user_role || "partes", rol_id: (item as any).user_rol_id || "", foto_url: item.foto_url || "", asignable: (item as any).asignable !== false, fecha_inicio: (item as any).fecha_inicio || new Date().toISOString().slice(0, 10), fecha_fin: (item as any).fecha_fin || "" }); setEditingId(item.id); setEditingActivo(item.user_activo !== false); setError(""); setModalOpen(true); } : undefined}
         addLabel="Nuevo trabajador" canAdd={isAdmin} canEdit={isAdmin} canDelete={isAdmin} onDelete={handleDelete} />
       {/* Modal de vista (modo lectura) */}
-      <Modal open={!!viewRecord} onClose={() => setViewRecord(null)} title={viewRecord?.nombre || ""} size="lg">
+      <Modal open={!!viewRecord} onClose={() => setViewRecord(null)} title={viewRecord?.nombre || ""} size="xl">
         {viewRecord && (
           <div>
             {/* Botón Editar en cabecera */}
@@ -316,6 +402,34 @@ export default function RecursosHumanosPage() {
 
             {/* PESTAÑA ASIGNACIONES */}
             {viewTab === "asignaciones" && (
+              <div>
+                {/* Filtros */}
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <input type="date" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)}
+                    className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none"
+                    placeholder="Desde" title="Desde" />
+                  <input type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)}
+                    className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none"
+                    placeholder="Hasta" title="Hasta" />
+                  <input type="text" value={filtroObra} onChange={(e) => setFiltroObra(e.target.value)}
+                    className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none min-w-[120px]"
+                    placeholder="Filtrar obra..." />
+                  <input type="text" value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}
+                    className="px-2 py-1 text-xs bg-surface-50 border border-surface-200 rounded-lg focus:outline-none min-w-[100px]"
+                    placeholder="Filtrar estado..." />
+                  {(filtroDesde || filtroHasta || filtroObra || filtroEstado) && (
+                    <button onClick={() => { setFiltroDesde(""); setFiltroHasta(""); setFiltroObra(""); setFiltroEstado(""); }}
+                      className="px-2 py-1 text-xs text-surface-500 hover:text-surface-700">✕ Limpiar</button>
+                  )}
+                  <button onClick={generatePdfAsignaciones} disabled={generandoPdf || loadingAsig}
+                    className="flex items-center gap-1 px-3 py-1 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-60 ml-auto">
+                    {generandoPdf ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    {generandoPdf ? "Generando..." : "Generar PDF"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {viewTab === "asignaciones" && (
               loadingAsig ? (
                 <div className="flex items-center justify-center py-10"><Loader2 className="w-6 h-6 text-brand-500 animate-spin" /></div>
               ) : viewAsignaciones.length === 0 ? (
@@ -330,7 +444,7 @@ export default function RecursosHumanosPage() {
                       <th className="text-left text-[10px] font-semibold text-surface-400 uppercase px-3 py-2">Estado</th>
                     </tr></thead>
                     <tbody className="divide-y divide-surface-100">
-                      {viewAsignaciones.map((a: any) => (
+                      {asignacionesFiltradas.map((a: any) => (
                         <tr key={a.id} className="hover:bg-surface-50">
                           <td className="px-3 py-2 text-surface-600 whitespace-nowrap">{a.fecha_inicio?.split("-").reverse().join("/") || "—"}</td>
                           <td className="px-3 py-2 text-surface-600 whitespace-nowrap">{a.fecha_fin?.split("-").reverse().join("/") || "—"}</td>
@@ -340,16 +454,16 @@ export default function RecursosHumanosPage() {
                               <span className="font-medium text-surface-900">{a.obra?.nombre || "Obra eliminada"}</span>
                             </span>
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 whitespace-nowrap">
                             {a.obra?.estado_custom ? (
-                              <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold text-white" style={{ backgroundColor: a.obra.estado_custom.color || "#6B7280" }}>{a.obra.estado_custom.nombre}</span>
+                              <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold text-white whitespace-nowrap" style={{ backgroundColor: a.obra.estado_custom.color || "#6B7280" }}>{a.obra.estado_custom.nombre}</span>
                             ) : <span className="text-surface-400">—</span>}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  <p className="text-[10px] text-surface-400 px-3 py-2 border-t border-surface-100">{viewAsignaciones.length} asignación{viewAsignaciones.length !== 1 ? "es" : ""}</p>
+                  <p className="text-[10px] text-surface-400 px-3 py-2 border-t border-surface-100">{asignacionesFiltradas.length} de {viewAsignaciones.length} asignación{viewAsignaciones.length !== 1 ? "es" : ""}</p>
                 </div>
               )
             )}
