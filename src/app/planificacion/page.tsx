@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import Modal from "@/components/shared/Modal";
 import { createClient } from "@/lib/supabase/client";
@@ -33,7 +33,10 @@ const TIPO_ICON: Record<string, typeof Users> = { humano: Users, vehiculo: Truck
 const TIPO_BG: Record<string, string> = { humano: "bg-violet-100 text-violet-700", vehiculo: "bg-teal-100 text-teal-700", obra: "bg-brand-100 text-brand-700" };
 const DAY_WIDTHS: Record<ViewMode, number> = { week: 110, month: 40, year: 18 };
 const DAYS_COUNT: Record<ViewMode, number> = { week: 7, month: 31, year: 364 };
-const LABEL_W = 210;
+const LABEL_W_DEFAULT = 210;
+const LABEL_W_MIN = 140;
+const LABEL_W_MAX = 420;
+const LABEL_W_STORAGE_KEY = "obrasplan_planificador_label_w";
 const CONFLICT_TYPES: RecursoTipo[] = ["humano", "vehiculo"];
 const SIN_ASIGNAR_ID = "SIN_ASIGNAR"; // ID virtual para la fila especial, nunca existe en BD
 const toDS = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -89,7 +92,7 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
           return info?.foto_url ? (
             <img key={a.id} src={info.foto_url} alt={info.nombre}
               title={`${info.nombre}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}${puedeEliminar ? "\nClic para quitar" : ""}`}
-              className={cn("rounded-full object-cover", dw > 60 ? "w-6 h-6" : "w-4 h-4",
+              className={cn("rounded-full object-cover", dw > 60 ? "w-5 h-5" : "w-3.5 h-3.5",
                 puedeEliminar ? "cursor-pointer" : "cursor-default",
                 conflictRing || (puedeEliminar ? "hover:ring-2 hover:ring-red-300" : ""))}
               onClick={() => puedeEliminar && onRemove(a.id)} />
@@ -97,7 +100,7 @@ const ObraCell = memo(function ObraCell({ obraId, dateStr, assignments, resInfo,
             <div key={a.id}
               title={`${info?.nombre || "?"}${isConflict ? " ⚠ Asignado a otra obra este día" : ""}${puedeEliminar ? "\nClic para quitar" : ""}`}
               className={cn("rounded-full bg-violet-200 text-violet-800 flex items-center justify-center font-bold",
-                dw > 60 ? "w-6 h-6 text-[8px]" : "w-4 h-4 text-[6px]",
+                dw > 60 ? "w-5 h-5 text-[7px]" : "w-3.5 h-3.5 text-[5.5px]",
                 puedeEliminar ? "cursor-pointer" : "cursor-default",
                 conflictRing || (puedeEliminar ? "hover:ring-2 hover:ring-red-300" : ""))}
               onClick={() => puedeEliminar && onRemove(a.id)}>{info?.initials || "?"}</div>
@@ -170,16 +173,16 @@ const RrhhCell = memo(function RrhhCell({ recursoId, dateStr, personAssignments,
 });
 
 // ---- Fila SIN ASIGNAR (virtual, siempre primera, no reordenable) ----
-function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWeekend, isToday, puedeEliminar }: {
+function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, labelW, isWeekend, isToday, puedeEliminar }: {
   dateStrs: string[]; days: Date[];
   assignGrid: Record<string, Asignacion[]>; resInfo: Record<string, ResourceInfo>;
-  onRemove: (id: string) => void; dw: number;
+  onRemove: (id: string) => void; dw: number; labelW: number;
   isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean; puedeEliminar: boolean;
 }) {
   return (
     <div className="flex border-b-2 border-amber-200 bg-amber-50/40">
       <div className="shrink-0 flex items-center gap-2 border-r border-amber-200 px-3"
-        style={{ width: LABEL_W, minWidth: LABEL_W }}>
+        style={{ width: labelW, minWidth: labelW }}>
         <div className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
         <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wide">Sin asignar</span>
       </div>
@@ -200,12 +203,12 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
                   return info?.foto_url ? (
                     <img key={a.id} src={info.foto_url} alt={info.nombre}
                       title={`${info.nombre} — sin asignar`}
-                      className={cn("rounded-full object-cover ring-1 ring-amber-300", dw > 60 ? "w-6 h-6" : "w-4 h-4")} />
+                      className={cn("rounded-full object-cover ring-1 ring-amber-300", dw > 60 ? "w-5 h-5" : "w-3.5 h-3.5")} />
                   ) : (
                     <div key={a.id}
                       title={`${info?.nombre || "?"} — sin asignar`}
                       className={cn("rounded-full bg-violet-100 text-violet-700 flex items-center justify-center font-bold ring-1 ring-amber-300",
-                        dw > 60 ? "w-6 h-6 text-[8px]" : "w-4 h-4 text-[6px]")}>
+                        dw > 60 ? "w-5 h-5 text-[7px]" : "w-3.5 h-3.5 text-[5.5px]")}>
                       {info?.initials || "?"}
                     </div>
                   );
@@ -238,12 +241,12 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
 }
 
 // ---- Sortable Row for Vista Obras ----
-function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved, puedeEliminar, puedeReordenar: puedeReord, activeOver }: {
+function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, labelW, isWeekend, isToday, notas, onNoteSaved, puedeEliminar, puedeReordenar: puedeReord, activeOver }: {
   obra: Obra; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
   obraRange?: { min: string; max: string }; resInfo: Record<string, ResourceInfo>;
   conflictResources: Set<string>; onRemove: (id: string) => void; onArchive: (id: string, v: boolean) => void;
   onAddManual: (obraId: string, obraName: string) => void; onChangeEstado: (obraId: string, estadoId: string) => void;
-  estados: EstadoObra[]; dw: number; isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
+  estados: EstadoObra[]; dw: number; labelW: number; isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
   notas: Record<string, any>; onNoteSaved: () => void; puedeEliminar: boolean;
   puedeReordenar?: boolean;
   activeOver?: { obraId: string; dateStr: string } | null;
@@ -252,19 +255,21 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
     <div ref={setNodeRef} style={style} className={cn("flex border-b border-surface-100 group bg-white", obra.archivada && "opacity-50")}>
-      <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
+      <div className="shrink-0 flex items-start border-r border-surface-100" style={{ width: labelW, minWidth: labelW }}>
         <div {...(puedeReord ? { ...attributes, ...listeners } : {})} className={cn("px-1 py-2 text-surface-300", puedeReord ? "cursor-grab hover:text-surface-500" : "cursor-default opacity-30")}><GripVertical className="w-3.5 h-3.5" /></div>
-        <div className="w-2 h-2 rounded-full shrink-0 mr-1.5" style={{ backgroundColor: obra.color || "#DC2626" }} />
-        <div className="flex-1 min-w-0 py-1 pr-1 flex items-center gap-1.5">
-          <Link href={`/obras/${obra.id}`} title={obra.nombre} className="flex-1 min-w-0 text-[11px] font-medium text-surface-900 hover:text-brand-600 truncate whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
+        <div className="w-2 h-2 rounded-full shrink-0 mr-1.5 mt-2" style={{ backgroundColor: obra.color || "#DC2626" }} />
+        <div className="flex-1 min-w-0 py-1 pr-1 flex items-start gap-1.5">
+          <Link href={`/obras/${obra.id}`} title={obra.nombre}
+            className="flex-1 min-w-0 text-[11px] font-medium text-surface-900 hover:text-brand-600 leading-snug line-clamp-2 break-words"
+            onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
           <select value={obra.estado_obra_id || ""} onChange={(e) => { e.stopPropagation(); onChangeEstado(obra.id, e.target.value); }}
             title={(obra as any).estado_custom?.nombre || "Sin estado"}
-            className="shrink-0 max-w-[86px] truncate whitespace-nowrap text-[9px] pl-1 pr-3 py-0 border-0 bg-transparent rounded cursor-pointer focus:outline-none appearance-none"
+            className="shrink-0 max-w-[86px] truncate whitespace-nowrap text-[9px] leading-none pl-1 pr-3 py-0.5 border-0 bg-transparent rounded cursor-pointer focus:outline-none appearance-none"
             style={{ color: (obra as any).estado_custom?.color || "#6B7280" }} onClick={(e) => e.stopPropagation()}>
             <option value="">Sin estado</option>{estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pr-1 shrink-0">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pr-1 pt-1.5 shrink-0">
           <button onClick={() => onAddManual(obra.id, obra.nombre)} title="Asignar recurso" className="p-0.5 rounded text-brand-500 hover:bg-brand-50"><Plus className="w-3.5 h-3.5" /></button>
           <button onClick={() => onArchive(obra.id, !obra.archivada)} className="p-0.5 rounded text-surface-400 hover:text-amber-600">
             {obra.archivada ? <Eye className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
@@ -299,9 +304,9 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
 }
 
 // ---- Sortable Person Row for Vista RRHH ----
-function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemove, dw, isWeekend, isToday, activeOver }: {
+function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemove, dw, labelW, isWeekend, isToday, activeOver }: {
   persona: RecursoHumano; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
-  obras: Obra[]; onRemove: (id: string) => void; dw: number;
+  obras: Obra[]; onRemove: (id: string) => void; dw: number; labelW: number;
   isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
   activeOver?: { obraId: string; dateStr: string } | null;
 }) {
@@ -311,7 +316,7 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
   if (!persona?.id) return null; // recurso sin id valido: no se puede renderizar la fila con seguridad
   return (
     <div ref={setNodeRef} style={style} className="flex border-b border-surface-100 bg-white">
-      <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
+      <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: labelW, minWidth: labelW }}>
         <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
         {persona.foto_url ? <img src={persona.foto_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" /> :
           <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[10px] font-bold shrink-0">
@@ -374,6 +379,54 @@ export default function PlanificacionPage() {
   const [notas, setNotas] = useState<Record<string, any>>({});
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => new Date());
+
+  // ---- Anchura redimensionable de la columna Obra/Persona (persistida en localStorage) ----
+  const [labelW, setLabelW] = useState(LABEL_W_DEFAULT);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LABEL_W_STORAGE_KEY);
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (!isNaN(n) && n >= LABEL_W_MIN && n <= LABEL_W_MAX) setLabelW(n);
+      }
+    } catch { /* localStorage puede no estar disponible (SSR/privado) */ }
+  }, []);
+  const [isResizingLabel, setIsResizingLabel] = useState(false);
+  const resizeStartRef = useRef<{ startX: number; startW: number } | null>(null);
+  useEffect(() => {
+    if (!isResizingLabel) return;
+    const onMove = (e: MouseEvent) => {
+      if (!resizeStartRef.current) return;
+      const delta = e.clientX - resizeStartRef.current.startX;
+      const newW = Math.min(LABEL_W_MAX, Math.max(LABEL_W_MIN, resizeStartRef.current.startW + delta));
+      setLabelW(newW);
+    };
+    const onUp = () => {
+      setIsResizingLabel(false);
+      setLabelW((w) => { try { localStorage.setItem(LABEL_W_STORAGE_KEY, String(w)); } catch { /* noop */ } return w; });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    // Cursor col-resize global durante el arrastre, y evitar selección de texto accidental
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizingLabel]);
+  const handleLabelResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    resizeStartRef.current = { startX: e.clientX, startW: labelW };
+    setIsResizingLabel(true);
+  };
+  const handleLabelResizeReset = (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    setLabelW(LABEL_W_DEFAULT);
+    try { localStorage.setItem(LABEL_W_STORAGE_KEY, String(LABEL_W_DEFAULT)); } catch { /* noop */ }
+  };
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024);
@@ -966,10 +1019,10 @@ export default function PlanificacionPage() {
           <div className="flex gap-0 flex-1 min-h-0">
             <div className="flex-1 card overflow-hidden flex flex-col min-w-0">
               <div className="flex-1 overflow-auto">
-                <div style={{ minWidth: LABEL_W + daysN * dw }}>
+                <div style={{ minWidth: labelW + daysN * dw }}>
                   {/* Day header */}
-                  <div className="flex sticky top-0 z-20 bg-white border-b border-surface-200">
-                    <div className="shrink-0 px-2 py-1.5 bg-surface-50 border-r border-surface-200 text-[10px] font-semibold text-surface-400 uppercase flex items-center" style={{ width: LABEL_W, minWidth: LABEL_W }}>
+                  <div className="relative flex sticky top-0 z-20 bg-white border-b border-surface-200">
+                    <div className="shrink-0 px-2 py-1.5 bg-surface-50 border-r border-surface-200 text-[10px] font-semibold text-surface-400 uppercase flex items-center" style={{ width: labelW, minWidth: labelW }}>
                       {planView === "obras" ? <><GripVertical className="w-3 h-3 mr-1 opacity-0" />Obra</> : <><Users className="w-3 h-3 mr-1" />Persona</>}
                     </div>
                     {days.map((d, i) => (
@@ -980,7 +1033,26 @@ export default function PlanificacionPage() {
                         {isTodayFn(d) && <span className="block text-[7px] font-extrabold text-brand-500 tracking-widest uppercase -mt-0.5">hoy</span>}
                       </div>
                     ))}
+                    {/* Controlador de redimensionado de la columna Obra/Persona: vive dentro de la cabecera
+                        sticky, así se mantiene siempre alineado con el límite de columna durante el scroll
+                        vertical (la cabecera es sticky, un overlay fuera de ella se desalinearía al hacer
+                        scroll). Es un div independiente, sin listeners de dnd-kit, por lo que no puede activar
+                        accidentalmente el drag & drop de recursos ni la reordenación de obras (esos usan sus
+                        propios useDraggable/useSortable en otros nodos, ninguno relacionado con este div). */}
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      title="Arrastra para redimensionar · doble clic para restaurar anchura"
+                      onMouseDown={handleLabelResizeStart}
+                      onDoubleClick={handleLabelResizeReset}
+                      onClick={(e) => e.stopPropagation()}
+                      className={cn("absolute top-0 bottom-0 z-30 w-1.5 -ml-[3px] cursor-col-resize group/resize", isResizingLabel ? "bg-brand-400" : "hover:bg-brand-300 bg-transparent")}
+                      style={{ left: labelW }}
+                    >
+                      <div className={cn("mx-auto h-full w-px", isResizingLabel ? "bg-brand-500" : "bg-surface-200 group-hover/resize:bg-brand-400")} />
+                    </div>
                   </div>
+
 
                   {/* ===== VISTA OBRAS ===== */}
                   {planView === "obras" && (
@@ -989,7 +1061,7 @@ export default function PlanificacionPage() {
                       <SinAsignarRow
                         dateStrs={dateStrs} days={days}
                         assignGrid={displayGrid} resInfo={resInfo}
-                        onRemove={handleRemove} dw={dw}
+                        onRemove={handleRemove} dw={dw} labelW={labelW}
                         isWeekend={isWeekendFn} isToday={isTodayFn} puedeEliminar={puedeAsignar}
                       />
                       <SortableContext key={obraIds.join(",")} items={obraIds} strategy={verticalListSortingStrategy}>
@@ -999,7 +1071,7 @@ export default function PlanificacionPage() {
                             conflictResources={conflictResources} puedeEliminar={puedeAsignar} onRemove={handleRemove} onArchive={handleArchive}
                             onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
                             onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
-                            estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
+                            estados={estados} dw={dw} labelW={labelW} isWeekend={isWeekendFn} isToday={isTodayFn}
                             notas={notas} onNoteSaved={fetchData}
                             puedeReordenar={puedeReordenar} activeOver={activeOver} />
                         ))}
@@ -1031,7 +1103,7 @@ export default function PlanificacionPage() {
                         <SortableContext key={rrhhIds.join(",")} items={rrhhIds} strategy={verticalListSortingStrategy}>
                           {sortedRrhh.filter((persona) => !!persona?.id).map((persona) => (
                             <SortablePersonRow key={persona.id} persona={persona} dateStrs={dateStrs} days={days}
-                              assignGrid={displayGrid} obras={obras} onRemove={handleRemove} dw={dw}
+                              assignGrid={displayGrid} obras={obras} onRemove={handleRemove} dw={dw} labelW={labelW}
                               isWeekend={isWeekendFn} isToday={isTodayFn} activeOver={activeOver} />
                           ))}
                         </SortableContext>
