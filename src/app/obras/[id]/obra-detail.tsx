@@ -66,7 +66,7 @@ export default function ObraDetallePage() {
     setLoading(true);
     const [obraRes, asigRes, tareasRes, tiposRes, estadosRes, rrhhRes, maqRes, vehRes, docsRes, partesRes, tiposObraRes, obraTiposRes] = await Promise.all([
       supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").eq("id", id).single(),
-      supabase.from("asignaciones").select("*").eq("obra_id", id),
+      supabase.from("asignaciones").select("*, estado_obra_snapshot_id, estado_obra_snapshot_nombre, estado_obra_snapshot_color, snapshot_estimado").eq("obra_id", id).order("fecha_inicio", { ascending: true }),
       supabase.from("tareas").select("*, tipo_tarea:tipo_tarea(nombre), recurso_asignado:recursos_humanos(nombre, foto_url)").eq("obra_id", id).order("created_at", { ascending: false }),
       supabase.from("tipo_tarea").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
@@ -269,52 +269,66 @@ export default function ObraDetallePage() {
               { title: "Maquinaria", icon: Wrench, tipo: "maquinaria" as const, items: maquinas, getName: (rid: string) => maq[rid]?.nombre || "?" },
               { title: "Vehículos", icon: Truck, tipo: "vehiculo" as const, items: vehiculos, getName: (rid: string) => veh[rid]?.nombre || "?" },
             ].map((g) => {
-              // Group by resource, collect date ranges
-              const grouped: Record<string, { nombre: string; ranges: { inicio: string; fin: string }[] }> = {};
-              g.items.forEach((a) => {
-                if (!grouped[a.recurso_id]) grouped[a.recurso_id] = { nombre: g.getName(a.recurso_id), ranges: [] };
-                grouped[a.recurso_id].ranges.push({ inicio: a.fecha_inicio, fin: a.fecha_fin });
+              // Una fila por asignación individual (para mostrar estado histórico)
+              const sortedItems = [...g.items].sort((a, b) => {
+                const na = g.getName(a.recurso_id); const nb = g.getName(b.recurso_id);
+                const nc = na.localeCompare(nb, "es"); if (nc !== 0) return nc;
+                return a.fecha_inicio.localeCompare(b.fecha_inicio);
               });
-              // Sort ranges and merge
-              Object.values(grouped).forEach((v) => v.ranges.sort((a, b) => a.inicio.localeCompare(b.inicio)));
-              const sortedResources = Object.entries(grouped).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, "es"));
 
               return (
                 <div key={g.title} className="card p-6">
-                  <h3 className="flex items-center gap-2 text-sm font-semibold text-surface-900 mb-3"><g.icon className="w-4 h-4 text-surface-400" />{g.title} ({sortedResources.length})</h3>
-                  {sortedResources.length === 0 ? <p className="text-sm text-surface-400">Sin asignaciones</p> : (
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-surface-200">
-                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2 w-[200px]">Recurso</th>
-                        <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Fechas</th>
-                        <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-2 w-[80px]">Días</th>
-                      </tr></thead>
-                      <tbody>{sortedResources.map(([rid, v]) => {
-                        const totalDays = v.ranges.reduce((sum, r) => {
-                          const s = new Date(r.inicio + "T12:00:00"); const e = new Date(r.fin + "T12:00:00");
-                          return sum + Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
-                        }, 0);
-                        return (
-                          <tr key={rid} className="border-b border-surface-50 hover:bg-surface-50/50">
-                            <td className="py-2 px-2 font-medium text-surface-900">{v.nombre}</td>
-                            <td className="py-2 px-2">
-                              <div className="flex flex-wrap gap-1">
-                                {v.ranges.map((r, i) => {
-                                  const s = new Date(r.inicio + "T12:00:00");
-                                  const e = new Date(r.fin + "T12:00:00");
-                                  const same = r.inicio === r.fin;
-                                  const label = same
-                                    ? s.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })
-                                    : `${s.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} → ${e.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
-                                  return <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-brand-50 text-brand-700">{label}</span>;
-                                })}
-                              </div>
-                            </td>
-                            <td className="py-2 px-2 text-right text-surface-600 font-medium">{totalDays}</td>
-                          </tr>
-                        );
-                      })}</tbody>
-                    </table>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-surface-900 mb-3">
+                    <g.icon className="w-4 h-4 text-surface-400" />{g.title} ({g.items.length})
+                  </h3>
+                  {sortedItems.length === 0 ? <p className="text-sm text-surface-400">Sin asignaciones</p> : (
+                    <div className="overflow-x-auto -mx-2">
+                      <table className="w-full text-sm min-w-[500px]">
+                        <thead><tr className="border-b border-surface-200">
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Recurso</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Fechas</th>
+                          <th className="text-left text-[10px] font-semibold text-surface-400 uppercase py-2 px-2">Estado al asignar</th>
+                          <th className="text-right text-[10px] font-semibold text-surface-400 uppercase py-2 px-2 w-[60px]">Días</th>
+                        </tr></thead>
+                        <tbody>{sortedItems.map((a) => {
+                          const nombre = g.getName(a.recurso_id);
+                          const s = new Date(a.fecha_inicio + "T12:00:00");
+                          const e = new Date(a.fecha_fin + "T12:00:00");
+                          const days = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+                          const same = a.fecha_inicio === a.fecha_fin;
+                          const fechaLabel = same
+                            ? s.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })
+                            : `${s.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} → ${e.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}`;
+                          const snapNombre = (a as any).estado_obra_snapshot_nombre;
+                          const snapColor  = (a as any).estado_obra_snapshot_color;
+                          const estimado   = (a as any).snapshot_estimado;
+                          return (
+                            <tr key={a.id} className="border-b border-surface-50 hover:bg-surface-50/50">
+                              <td className="py-2 px-2 font-medium text-surface-900">{nombre}</td>
+                              <td className="py-2 px-2">
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-brand-50 text-brand-700">{fechaLabel}</span>
+                              </td>
+                              <td className="py-2 px-2">
+                                {snapNombre ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold text-white whitespace-nowrap"
+                                      style={{ backgroundColor: snapColor || "#6B7280" }}>
+                                      {snapNombre}
+                                    </span>
+                                    {estimado && (
+                                      <span title="Dato estimado — reconstruido desde historial" className="text-[9px] text-surface-400 cursor-help">~</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-surface-300">Sin estado</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-2 text-right text-surface-600 font-medium">{days}</td>
+                            </tr>
+                          );
+                        })}</tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               );

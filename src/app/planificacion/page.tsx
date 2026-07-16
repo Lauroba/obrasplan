@@ -572,6 +572,7 @@ export default function PlanificacionPage() {
           }
         }
       }
+      // El trigger trg_asignaciones_snapshot_estado captura estado_obra_snapshot automáticamente
       const { error: insErr } = await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: tipo as RecursoTipo, recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
       if (insErr) { setAsignError(`Error al asignar: ${insErr.message} (code: ${insErr.code})`); return; }
       fetchData(); return;
@@ -597,6 +598,7 @@ export default function PlanificacionPage() {
           return;
         }
       }
+      // El trigger captura el estado de la obra automáticamente
       const { error: insErr2 } = await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: "humano", recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
       if (insErr2) { setAsignError(`Error al asignar: ${insErr2.message} (code: ${insErr2.code})`); return; }
       fetchData(); return;
@@ -614,6 +616,7 @@ export default function PlanificacionPage() {
       const obraId = personAssigs[0].obra_id;
       const existing = assignGrid[`${obraId}|${dateStr}`]?.find((a) => a.recurso_tipo === tipo && a.recurso_id === recursoId);
       if (existing) return;
+      // El trigger captura el estado de la obra automáticamente
       await supabase.from("asignaciones").insert({ obra_id: obraId, recurso_tipo: tipo, recurso_id: recursoId, fecha_inicio: dateStr, fecha_fin: dateStr });
       fetchData(); return;
     }
