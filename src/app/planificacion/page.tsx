@@ -21,6 +21,7 @@ import { checkRrhhDisponibilidad, filtrarRrhhDisponibles, formatFechaES } from "
 import Link from "next/link";
 import CellNote from "@/components/planificacion/CellNote";
 import { usePermissions } from "@/hooks/usePermissions";
+import { PlanificadorErrorBoundary } from "./PlanificadorErrorBoundary";
 
 type PlanView = "obras" | "rrhh";
 type ViewMode = "week" | "month" | "year";
@@ -297,38 +298,44 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
 }
 
 // ---- Sortable Person Row for Vista RRHH ----
-function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemove, dw, isWeekend, isToday }: {
+function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemove, dw, isWeekend, isToday, activeOver }: {
   persona: RecursoHumano; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
   obras: Obra[]; onRemove: (id: string) => void; dw: number;
   isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
+  activeOver?: { obraId: string; dateStr: string } | null;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `prow-${persona.id}` });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `prow-${persona?.id}` });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  const nombre = persona?.nombre || "?";
+  if (!persona?.id) return null; // recurso sin id valido: no se puede renderizar la fila con seguridad
   return (
     <div ref={setNodeRef} style={style} className="flex border-b border-surface-100 bg-white">
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
         <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
         {persona.foto_url ? <img src={persona.foto_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" /> :
           <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-[10px] font-bold shrink-0">
-            {persona.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+            {nombre.split(" ").map((w) => w[0] || "").join("").slice(0, 2).toUpperCase() || "?"}
           </div>}
-        <div className="min-w-0 ml-2"><p className="text-[11px] font-medium text-surface-900 truncate">{persona.nombre}</p>
+        <div className="min-w-0 ml-2"><p className="text-[11px] font-medium text-surface-900 truncate">{nombre}</p>
           <p className="text-[10px] text-surface-400 truncate">{persona.perfil || ""}</p></div>
       </div>
       {dateStrs.map((ds, i) => {
         const day = days[i];
         const personDayAssigs = assignGrid[`person-${persona.id}|${ds}`] || [];
+        // En Vista Personas, la celda droppable usa id `cell-${persona.id}|${ds}`, por lo que
+        // activeOver.obraId contiene en realidad el id de la PERSONA sobre la que se está arrastrando
+        // (ver customCollision/onDragOver), nunca un id de obra. Comparar contra persona.id, no contra "obra".
         return (
           <div key={ds} style={{ width: dw, minWidth: dw }}
-            className={cn("border-r border-surface-100", activeOver?.obraId === obra.id && activeOver?.dateStr === ds
+            className={cn("border-r border-surface-100", activeOver?.obraId === persona.id && activeOver?.dateStr === ds
                 ? "bg-blue-100 ring-2 ring-inset ring-blue-400"
-                : activeOver?.obraId === obra.id
+                : activeOver?.obraId === persona.id
                 ? "bg-blue-50"
-                : activeOver?.dateStr === ds && !activeOver?.obraId?.startsWith("SIN")
+                : activeOver?.dateStr === ds && activeOver?.obraId && activeOver.obraId !== persona.id
                 ? "bg-blue-50/60"
                 : isToday(day) ? "bg-amber-50/50" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             <RrhhCell recursoId={persona.id} dateStr={ds} personAssignments={personDayAssigs}
-              obras={obras} onRemove={onRemove} dw={dw} />
+              obras={obras || []} onRemove={onRemove} dw={dw} />
           </div>
         );
       })}
@@ -370,6 +377,10 @@ export default function PlanificacionPage() {
   }, []);
   const [activeDrag, setActiveDrag] = useState<{ nombre: string; foto_url?: string | null; color?: string; iconType: string } | null>(null);
   const [activeOver, setActiveOver] = useState<{ obraId: string; dateStr: string } | null>(null);
+  // Al cambiar entre Vista Obras y Vista Personas, limpiar cualquier estado de drag & drop
+  // residual: el id activo/"over" de la vista anterior no es válido en la nueva vista
+  // (los ids de fila/celda tienen distinto significado en cada una).
+  useEffect(() => { setActiveDrag(null); setActiveOver(null); }, [planView]);
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
   const [manualModal, setManualModal] = useState<{ obraId: string; obraName: string } | null>(null);
   // Modal confirmación eliminación de asignación
@@ -973,7 +984,7 @@ export default function PlanificacionPage() {
 
                   {/* ===== VISTA OBRAS ===== */}
                   {planView === "obras" && (
-                    <>
+                    <PlanificadorErrorBoundary vista="Obras">
                       {/* Fila SIN ASIGNAR: siempre la primera, virtual, no reordenable */}
                       <SinAsignarRow
                         dateStrs={dateStrs} days={days}
@@ -993,7 +1004,7 @@ export default function PlanificacionPage() {
                             puedeReordenar={puedeReordenar} activeOver={activeOver} />
                         ))}
                       </SortableContext>
-                    </>
+                    </PlanificadorErrorBoundary>
                   )}
 
                   {/* ===== VISTA RRHH ===== */}
@@ -1006,17 +1017,19 @@ export default function PlanificacionPage() {
                       const bHas = rrhhWithAssignments.has(b.id);
                       if (aHas && !bHas) return -1;
                       if (!aHas && bHas) return 1;
-                      return a.nombre.localeCompare(b.nombre, "es");
+                      return (a.nombre || "").localeCompare(b.nombre || "", "es");
                     });
-                    const rrhhIds = sortedRrhh.map((p) => `prow-${p.id}`);
+                    const rrhhIds = sortedRrhh.filter((p) => !!p?.id).map((p) => `prow-${p.id}`);
                     return (
-                      <SortableContext key={rrhhIds.join(",")} items={rrhhIds} strategy={verticalListSortingStrategy}>
-                        {sortedRrhh.map((persona) => (
-                          <SortablePersonRow key={persona.id} persona={persona} dateStrs={dateStrs} days={days}
-                            assignGrid={displayGrid} obras={obras} onRemove={handleRemove} dw={dw}
-                            isWeekend={isWeekendFn} isToday={isTodayFn} />
-                        ))}
-                      </SortableContext>
+                      <PlanificadorErrorBoundary vista="Personas">
+                        <SortableContext key={rrhhIds.join(",")} items={rrhhIds} strategy={verticalListSortingStrategy}>
+                          {sortedRrhh.filter((persona) => !!persona?.id).map((persona) => (
+                            <SortablePersonRow key={persona.id} persona={persona} dateStrs={dateStrs} days={days}
+                              assignGrid={displayGrid} obras={obras} onRemove={handleRemove} dw={dw}
+                              isWeekend={isWeekendFn} isToday={isTodayFn} activeOver={activeOver} />
+                          ))}
+                        </SortableContext>
+                      </PlanificadorErrorBoundary>
                     );
                   })()}
 
