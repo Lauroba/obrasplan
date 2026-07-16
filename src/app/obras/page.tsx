@@ -15,6 +15,10 @@ import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario"
 export default function ObrasPage() {
   const { user } = useAuthStore();
   const { isAdmin, canDo, loaded: permisosLoaded } = usePermissions();
+  const puedeVer      = isAdmin || canDo("obras", "visible");
+  const puedeCrear    = isAdmin || canDo("obras", "crear");
+  const puedeEditar   = isAdmin || canDo("obras", "editar");
+  const puedeEliminar = isAdmin || canDo("obras", "eliminar");
   // Solo filtrar por asignaciones si es operario puro (sin permisos crear/editar obras)
   // Guard: mientras cargan los permisos, no filtrar (evita race condition)
   const esSoloOperario = permisosLoaded && !isAdmin && !canDo("obras", "crear") && !canDo("obras", "editar");
@@ -74,7 +78,7 @@ export default function ObrasPage() {
     {
       key: "archivada" as any, header: "",
       render: (item) => {
-        if (!isAdmin) return null;
+        if (!puedeEditar && !puedeEliminar) return null;
         const estaArchivada = !!(item as any).archivada;
         const isConfirming = confirmArchive === item.id;
         const isLoading = archivando === item.id;
@@ -164,7 +168,7 @@ export default function ObrasPage() {
               <option value="">Todos los estados</option>
               {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
-            {isAdmin && (
+            {puedeCrear && (
               <Link href="/obras/nueva" className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
                 <Plus className="w-4 h-4" /> Nueva obra
               </Link>

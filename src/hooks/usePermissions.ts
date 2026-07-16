@@ -10,7 +10,7 @@ interface Permisos {
   crear: boolean;
   editar: boolean;
   eliminar: boolean;
-  asignar: boolean;
+
 }
 
 // Default permissions per screen for non-configured roles
@@ -79,7 +79,7 @@ export function usePermissions() {
     return DEFAULT_OPERARIO[pantalla]?.visible || false;
   }, [isAdmin, permisos]);
 
-  const canDo = useCallback((pantalla: string, action: "crear" | "editar" | "eliminar" | "asignar"): boolean => {
+  const canDo = useCallback((pantalla: string, action: "crear" | "editar" | "eliminar"): boolean => {
     if (isAdmin) return true;
     const perm = permisos.find((p) => p.pantalla === pantalla);
     if (perm) return !!(perm as any)[action];

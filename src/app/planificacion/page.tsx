@@ -328,7 +328,7 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
 export default function PlanificacionPage() {
   const supabase = createClient();
   const { isAdmin: isAdminPlan, canDo: canDoPlan } = usePermissions();
-  const puedeAsignar = isAdminPlan || canDoPlan("planificacion", "asignar");
+  const puedeAsignar = isAdminPlan || canDoPlan("planificacion", "crear");
 
   const [obras, setObras] = useState<Obra[]>([]); const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
   const [rrhh, setRrhh] = useState<RecursoHumano[]>([]);

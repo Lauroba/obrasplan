@@ -35,8 +35,8 @@ const PANTALLAS = [
   { id: "configuracion", label: "Configuración" },
 ];
 
-const PERMISOS = ["visible", "crear", "editar", "eliminar", "asignar"] as const;
-const PERMISO_LABELS: Record<string, string> = { visible: "Ver", crear: "Crear", editar: "Editar", eliminar: "Eliminar", asignar: "Asignar" };
+const PERMISOS = ["visible", "crear", "editar", "eliminar"] as const;
+const PERMISO_LABELS: Record<string, string> = { visible: "Ver", crear: "Crear", editar: "Editar", eliminar: "Eliminar" };
 
 interface RolData {
   id: string;
@@ -89,7 +89,7 @@ export default function ConfiguracionPage() {
           crear: existing?.crear ?? r.is_admin,
           editar: existing?.editar ?? r.is_admin,
           eliminar: existing?.eliminar ?? r.is_admin,
-          asignar: existing?.asignar ?? r.is_admin,
+
         };
       });
       return { id: r.id, nombre: r.nombre, descripcion: r.descripcion || "", is_admin: r.is_admin, permisos };
@@ -136,7 +136,6 @@ export default function ConfiguracionPage() {
         rol_id: rol.id, pantalla: pantalla.id,
         visible: perms.visible ?? false, crear: perms.crear ?? false,
         editar: perms.editar ?? false, eliminar: perms.eliminar ?? false,
-        asignar: perms.asignar ?? false,
       }, { onConflict: "rol_id,pantalla" });
     }
     setSaving(false); setSaved(true);

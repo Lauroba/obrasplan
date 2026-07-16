@@ -25,7 +25,9 @@ export default function ObraDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { isAdmin } = usePermissions();
+  const { isAdmin, canDo } = usePermissions();
+  const puedeEditar   = isAdmin || canDo("obras", "editar");
+  const puedeEliminar = isAdmin || canDo("obras", "eliminar");
   const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -420,7 +422,7 @@ export default function ObraDetallePage() {
                 <p className="text-xs text-surface-400 mb-5">
                   El código se generará como OBRA-{(obra as any)?.num_presupuesto || (id as string).slice(0, 8).toUpperCase()}.
                 </p>
-                {isAdmin && (
+                {puedeEditar && (
                   <button
                     disabled={creandoAlmacen}
                     onClick={async () => {
