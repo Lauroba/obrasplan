@@ -322,7 +322,11 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
       </div>
       {dateStrs.map((ds, i) => {
         const day = days[i];
-        const personDayAssigs = assignGrid[`person-${persona.id}|${ds}`] || [];
+        // No mostrar asignaciones (ni siquiera históricas) en días fuera de la ventana de disponibilidad
+        // actual del recurso. Esto evita que una asignación antigua "fuerce" a mostrar datos si la
+        // fecha_inicio/fecha_fin del RRHH cambió después de haberse creado la asignación.
+        const disponibleEseDia = checkRrhhDisponibilidad(persona, ds).disponible;
+        const personDayAssigs = disponibleEseDia ? (assignGrid[`person-${persona.id}|${ds}`] || []) : [];
         // En Vista Personas, la celda droppable usa id `cell-${persona.id}|${ds}`, por lo que
         // activeOver.obraId contiene en realidad el id de la PERSONA sobre la que se está arrastrando
         // (ver customCollision/onDragOver), nunca un id de obra. Comparar contra persona.id, no contra "obra".
@@ -1005,7 +1009,13 @@ export default function PlanificacionPage() {
 
                   {/* ===== VISTA RRHH ===== */}
                   {planView === "rrhh" && (() => {
-                    const assignableRrhh = rrhh.filter((r) => (r as any).asignable !== false);
+                    // Mismo filtro centralizado de disponibilidad que Vista Obras (checkRrhhDisponibilidad):
+                    // activo && asignable !== false && fecha_inicio<=dia<=fecha_fin (fecha_fin inclusiva, null = sin límite).
+                    // Un RRHH solo aparece como fila si tiene AL MENOS un día disponible dentro de la semana visible.
+                    // No se usa la existencia de asignaciones para decidir esto: una asignación histórica fuera del
+                    // periodo de disponibilidad actual del recurso (p.ej. si se acortó su fecha_fin) NUNCA debe forzar
+                    // que la fila se muestre.
+                    const assignableRrhh = rrhh.filter((r) => dateStrs.some((ds) => checkRrhhDisponibilidad(r, ds).disponible));
                     const rrhhWithAssignments = new Set<string>();
                     asignaciones.forEach((a) => { if (a.recurso_tipo === "humano") dateStrs.forEach((ds) => { if (a.fecha_inicio <= ds && a.fecha_fin >= ds) rrhhWithAssignments.add(a.recurso_id); }); });
                     const sortedRrhh = [...assignableRrhh].sort((a, b) => {
