@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { Obra, EstadoObra } from "@/lib/types/database";
-import { Building2, Plus, Archive, ArchiveRestore, Loader2 } from "lucide-react";
+import { Building2, Plus, Archive, ArchiveRestore, Loader2, FileDown } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import Link from "next/link";
 import { filtrarObrasVisiblesOperario } from "@/lib/utils/obrasVisiblesOperario";
@@ -24,6 +24,8 @@ export default function ObrasPage() {
   const esSoloOperario = permisosLoaded && !isAdmin && !canDo("obras", "crear") && !canDo("obras", "editar");
   const [archivando, setArchivando] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [data, setData] = useState<Obra[]>([]);
   const [estados, setEstados] = useState<EstadoObra[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("");
@@ -122,6 +124,63 @@ export default function ObrasPage() {
     },
   ];
 
+  const handleGenerarPdf = async () => {
+    if (filteredData.length === 0) {
+      alert("No hay obras con los filtros actuales. Ajusta los filtros antes de generar el informe.");
+      return;
+    }
+    setGenerandoPdf(true);
+    try {
+      // Filtrar también por búsqueda (replicar el searchKeys de DataTable)
+      const q = searchQuery.toLowerCase().trim();
+      const obrasFiltradas = q
+        ? filteredData.filter((o) =>
+            [o.nombre, o.ubicacion, o.estado, (o as any).cliente?.nombre,
+             o.direccion, o.localidad, o.num_presupuesto]
+              .some((v) => v && String(v).toLowerCase().includes(q))
+          )
+        : filteredData;
+
+      if (obrasFiltradas.length === 0) {
+        alert("No hay obras con los filtros actuales. Ajusta los filtros antes de generar el informe.");
+        setGenerandoPdf(false); return;
+      }
+
+      const estadoLabel = estadoFilter
+        ? (estados.find((e) => e.id === estadoFilter)?.nombre || "")
+        : "";
+
+      const res = await fetch("/api/informes/obras", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          obras: obrasFiltradas,
+          archivedFilter,
+          estadoFilterLabel: estadoLabel,
+          searchQuery: q,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Error desconocido" }));
+        alert("Error al generar PDF: " + (err.error || res.statusText));
+        setGenerandoPdf(false); return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const hoy = new Date();
+      const fecha = `${hoy.getFullYear()}${String(hoy.getMonth()+1).padStart(2,"0")}${String(hoy.getDate()).padStart(2,"0")}`;
+      a.href = url; a.download = `obras_${archivedFilter}_${fecha}.pdf`;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+    } catch (err: any) {
+      alert("Error al generar PDF: " + (err?.message || err));
+    }
+    setGenerandoPdf(false);
+  };
+
   const handleArchivar = async (obra: Obra) => {
     if (confirmArchive !== obra.id) { setConfirmArchive(obra.id); return; }
     setArchivando(obra.id); setConfirmArchive(null);
@@ -168,6 +227,11 @@ export default function ObrasPage() {
               <option value="">Todos los estados</option>
               {estados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
+            <button onClick={handleGenerarPdf} disabled={generandoPdf || loading}
+              className="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-surface-700 bg-surface-100 rounded-lg hover:bg-surface-200 disabled:opacity-60 transition-colors">
+              {generandoPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+              {generandoPdf ? "Generando..." : "Informe PDF"}
+            </button>
             {puedeCrear && (
               <Link href="/obras/nueva" className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 transition-colors">
                 <Plus className="w-4 h-4" /> Nueva obra
@@ -179,6 +243,7 @@ export default function ObrasPage() {
         <DataTable data={filteredData} columns={columns} title={archivedFilter === "activas" ? "Obras activas" : archivedFilter === "archivadas" ? "Obras archivadas" : "Todas las obras"} loading={loading}
           searchPlaceholder="Buscar por nombre, cliente, dirección, localidad, presupuesto..."
           searchKeys={["nombre", "ubicacion", "estado", (o: any) => o.cliente?.nombre || "", (o: any) => o.direccion || "", (o: any) => o.localidad || "", (o: any) => o.num_presupuesto || ""]}
+          onSearch={(q) => setSearchQuery(q)}
           canAdd={false} canEdit={false} canDelete={false} />
         </div>
       </div>

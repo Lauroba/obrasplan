@@ -38,6 +38,7 @@ interface DataTableProps<T extends { id: string }> {
   canEdit?: boolean;
   canDelete?: boolean;
   canAdd?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export default function DataTable<T extends { id: string }>({
@@ -56,6 +57,7 @@ export default function DataTable<T extends { id: string }>({
   canEdit = true,
   canDelete = true,
   canAdd = true,
+  onSearch,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -140,7 +142,8 @@ export default function DataTable<T extends { id: string }>({
             type="text"
             value={search}
             onChange={(e) => {
-              setSearch(e.target.value);
+              const val = e.target.value; setSearch(val);
+              onSearch?.(val);
               setPage(0);
             }}
             placeholder={searchPlaceholder}
@@ -149,7 +152,7 @@ export default function DataTable<T extends { id: string }>({
           />
           {search && (
             <button
-              onClick={() => setSearch("")}
+              onClick={() => { setSearch(""); onSearch?.(""); }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600"
             >
               <X className="w-3.5 h-3.5" />
