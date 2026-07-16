@@ -192,7 +192,7 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
           <div key={ds} style={{ width: dw, minWidth: dw }}
             className={cn("border-r border-amber-100 relative",
               isToday(day) ? "bg-brand-50/20" : isWeekend(day) ? "bg-amber-50/60" : "")}>
-            <div className="h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 p-0.5 overflow-hidden">
+            <div className="h-full min-h-[36px] flex flex-col items-center justify-center gap-0.5 p-0.5 overflow-hidden">
               {/* RRHH sin asignar ese día */}
               <div className="flex flex-wrap gap-0.5 justify-center">
                 {personas.map((a) => {
@@ -253,17 +253,18 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
   return (
     <div ref={setNodeRef} style={style} className={cn("flex border-b border-surface-100 group bg-white", obra.archivada && "opacity-50")}>
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
-        <div {...(puedeReord ? { ...attributes, ...listeners } : {})} className={cn("px-1 py-3 text-surface-300", puedeReord ? "cursor-grab hover:text-surface-500" : "cursor-default opacity-30")}><GripVertical className="w-3.5 h-3.5" /></div>
+        <div {...(puedeReord ? { ...attributes, ...listeners } : {})} className={cn("px-1 py-2 text-surface-300", puedeReord ? "cursor-grab hover:text-surface-500" : "cursor-default opacity-30")}><GripVertical className="w-3.5 h-3.5" /></div>
         <div className="w-2 h-2 rounded-full shrink-0 mr-1.5" style={{ backgroundColor: obra.color || "#DC2626" }} />
-        <div className="flex-1 min-w-0 py-1.5 pr-1">
-          <Link href={`/obras/${obra.id}`} className="text-[11px] font-medium text-surface-900 hover:text-brand-600 truncate block" onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
+        <div className="flex-1 min-w-0 py-1 pr-1 flex items-center gap-1.5">
+          <Link href={`/obras/${obra.id}`} title={obra.nombre} className="flex-1 min-w-0 text-[11px] font-medium text-surface-900 hover:text-brand-600 truncate whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
           <select value={obra.estado_obra_id || ""} onChange={(e) => { e.stopPropagation(); onChangeEstado(obra.id, e.target.value); }}
-            className="text-[9px] pl-0.5 pr-3 py-0 border-0 bg-transparent rounded cursor-pointer focus:outline-none appearance-none"
+            title={(obra as any).estado_custom?.nombre || "Sin estado"}
+            className="shrink-0 max-w-[86px] truncate whitespace-nowrap text-[9px] pl-1 pr-3 py-0 border-0 bg-transparent rounded cursor-pointer focus:outline-none appearance-none"
             style={{ color: (obra as any).estado_custom?.color || "#6B7280" }} onClick={(e) => e.stopPropagation()}>
             <option value="">Sin estado</option>{estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pr-1">
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pr-1 shrink-0">
           <button onClick={() => onAddManual(obra.id, obra.nombre)} title="Asignar recurso" className="p-0.5 rounded text-brand-500 hover:bg-brand-50"><Plus className="w-3.5 h-3.5" /></button>
           <button onClick={() => onArchive(obra.id, !obra.archivada)} className="p-0.5 rounded text-surface-400 hover:text-amber-600">
             {obra.archivada ? <Eye className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
@@ -283,7 +284,7 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
                 ? "bg-blue-50/60"
                 : isToday(day) ? "bg-amber-50/50" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             {inRange && <div className="absolute inset-0" style={{ backgroundColor: `${obra.color || "#DC2626"}08` }} />}
-            <div className="relative h-full min-h-[44px] group">
+            <div className="relative h-full min-h-[36px] group">
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
                 onRemove={onRemove} dw={dw} conflictResources={conflictResources} puedeEliminar={puedeEliminar} />
               <div className="absolute top-0 right-0.5 z-10">
@@ -915,50 +916,45 @@ export default function PlanificacionPage() {
           } else { setActiveOver(null); }
         }}
         onDragCancel={() => { setActiveDrag(null); setActiveOver(null); }}>
-        <div className="animate-fade-in h-[calc(100vh-7rem)] flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-2 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center"><CalendarRange className="w-4 h-4 text-brand-600" /></div>
-              <h1 className="text-base font-display font-bold text-surface-900">Planificación</h1>
+        <div className="animate-fade-in h-[calc(100vh-6rem)] flex flex-col">
+          {/* Header + Nav: agrupados en una barra compacta que se envuelve (flex-wrap) en pantallas estrechas, sin scroll horizontal */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-1.5 shrink-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="w-6 h-6 rounded-lg bg-brand-50 flex items-center justify-center shrink-0"><CalendarRange className="w-3.5 h-3.5 text-brand-600" /></div>
+              <h1 className="text-sm font-display font-bold text-surface-900 whitespace-nowrap">Planificación</h1>
               {/* View toggle */}
-              <div className="flex bg-surface-100 rounded-lg p-0.5 ml-2">
-                <button onClick={() => setPlanView("obras")} className={cn("flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded-md transition-colors", planView === "obras" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>
+              <div className="flex bg-surface-100 rounded-lg p-0.5">
+                <button onClick={() => setPlanView("obras")} className={cn("flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap", planView === "obras" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>
                   <Building2 className="w-3.5 h-3.5" />Vista Obras
                 </button>
-                <button onClick={() => setPlanView("rrhh")} className={cn("flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded-md transition-colors", planView === "rrhh" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>
+                <button onClick={() => setPlanView("rrhh")} className={cn("flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap", planView === "rrhh" ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>
                   <Users className="w-3.5 h-3.5" />Vista Personas
                 </button>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {conflictResources.size > 0 && <span className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-red-700 bg-red-50 rounded-lg"><AlertTriangle className="w-3 h-3" />{conflictResources.size} conflicto{conflictResources.size > 1 ? "s" : ""}</span>}
-              <div className="relative">
-                <input type="text" value={obraSearch} onChange={(e) => setObraSearch(e.target.value)} placeholder="Filtrar obra..." className="w-32 px-2 py-1 pl-7 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:w-44 transition-all" />
-                <Search className="w-3 h-3 text-surface-400 absolute left-2 top-1/2 -translate-y-1/2" />
-                {obraSearch && <button onClick={() => setObraSearch("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600"><X className="w-3 h-3" /></button>}
+              {/* Nav de semana/mes/año */}
+              <div className="flex items-center gap-1 pl-1">
+                <button onClick={() => navigate(-1)} className="p-0.5 rounded text-surface-400 hover:bg-surface-100"><ChevronLeft className="w-4 h-4" /></button>
+                <button onClick={goToday} className="px-2 py-0.5 text-[10px] font-medium text-brand-600 bg-brand-50 rounded hover:bg-brand-100">Hoy</button>
+                <button onClick={() => navigate(1)} className="p-0.5 rounded text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
+                <span className="text-[11px] font-medium text-surface-600 ml-1 whitespace-nowrap">{days[0].toLocaleDateString("es-ES", { day: "numeric", month: "long" })} — {days[days.length - 1].toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}</span>
               </div>
-              <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} className="px-2 py-1 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 focus:outline-none">
-                <option value="">Todos estados</option>{estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
-              </select>
-              <button onClick={() => setShowArchived(!showArchived)} className={cn("flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg", showArchived ? "bg-surface-200 text-surface-700" : "bg-surface-100 text-surface-500")}><Archive className="w-3 h-3" /></button>
-              <Link href="/obras/nueva" className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600"><Plus className="w-3 h-3" />Obra</Link>
             </div>
-          </div>
-          {/* Nav */}
-          <div className="flex items-center justify-between mb-1.5 shrink-0">
-            <div className="flex items-center gap-1">
-              <button onClick={() => navigate(-1)} className="p-1 rounded text-surface-400 hover:bg-surface-100"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={goToday} className="px-2 py-0.5 text-[10px] font-medium text-brand-600 bg-brand-50 rounded hover:bg-brand-100">Hoy</button>
-              <button onClick={() => navigate(1)} className="p-1 rounded text-surface-400 hover:bg-surface-100"><ChevronRight className="w-4 h-4" /></button>
-              <span className="text-[11px] font-medium text-surface-600 ml-1">{days[0].toLocaleDateString("es-ES", { day: "numeric", month: "long" })} — {days[days.length - 1].toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {conflictResources.size > 0 && <span className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-red-700 bg-red-50 rounded-lg whitespace-nowrap"><AlertTriangle className="w-3 h-3" />{conflictResources.size} conflicto{conflictResources.size > 1 ? "s" : ""}</span>}
               <div className="flex bg-surface-100 rounded p-0.5">{(["week", "month", "year"] as ViewMode[]).map((v) => (
                 <button key={v} onClick={() => setViewMode(v)} className={cn("px-2 py-0.5 text-[10px] font-medium rounded transition-colors", viewMode === v ? "bg-white text-surface-900 shadow-sm" : "text-surface-500")}>
                   {v === "week" ? "Semana" : v === "month" ? "Mes" : "Año"}</button>))}</div>
-              <button onClick={() => setPanelOpen(!panelOpen)} className={cn("px-2 py-1 text-[10px] font-medium rounded-lg", panelOpen ? "bg-brand-50 text-brand-600" : "bg-surface-100 text-surface-500")}>{panelOpen ? "Ocultar" : "Panel"}</button>
-              
+              <div className="relative">
+                <input type="text" value={obraSearch} onChange={(e) => setObraSearch(e.target.value)} placeholder="Filtrar obra..." className="w-28 px-2 py-0.5 pl-6 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 placeholder:text-surface-400 focus:outline-none focus:ring-1 focus:ring-brand-500/30 focus:w-40 transition-all" />
+                <Search className="w-3 h-3 text-surface-400 absolute left-1.5 top-1/2 -translate-y-1/2" />
+                {obraSearch && <button onClick={() => setObraSearch("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600"><X className="w-3 h-3" /></button>}
+              </div>
+              <select value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)} className="px-1.5 py-0.5 text-[11px] bg-surface-100 border-0 rounded-lg text-surface-600 focus:outline-none">
+                <option value="">Todos estados</option>{estados.map((es) => <option key={es.id} value={es.id}>{es.nombre}</option>)}
+              </select>
+              <button onClick={() => setShowArchived(!showArchived)} className={cn("flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium rounded-lg", showArchived ? "bg-surface-200 text-surface-700" : "bg-surface-100 text-surface-500")}><Archive className="w-3 h-3" /></button>
+              <button onClick={() => setPanelOpen(!panelOpen)} className={cn("px-2 py-0.5 text-[10px] font-medium rounded-lg whitespace-nowrap", panelOpen ? "bg-brand-50 text-brand-600" : "bg-surface-100 text-surface-500")}>{panelOpen ? "Ocultar" : "Panel"}</button>
+              <Link href="/obras/nueva" className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 whitespace-nowrap"><Plus className="w-3 h-3" />Obra</Link>
             </div>
           </div>
 
