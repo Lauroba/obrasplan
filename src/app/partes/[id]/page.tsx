@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils/cn";
+import { logAuditErrorClient } from "@/lib/audit/logAuditError";
 
 interface LineaForm { id?: string; concepto: string; tipo_trabajo_id: string; fabricante: string; producto: string; unidades: string; cantidad: string }
 const emptyLinea: LineaForm = { concepto: "", tipo_trabajo_id: "", fabricante: "", producto: "", unidades: "", cantidad: "" };
@@ -93,8 +94,15 @@ export default function ParteDetallePage() {
   const puedeCrear    = isAdmin || canDo("partes", "crear");
   const puedeEditar   = isAdmin || canDo("partes", "editar");
   const puedeEliminar = isAdmin || canDo("partes", "eliminar");
+  // Regla de firma: exactamente isAdmin || canDo("partes","editar"), más la posibilidad de que el propio
+  // creador complete su borrador aunque su rol no tenga "editar" (ej. Operario: crear=true, editar=false).
+  // No depende de ser admin en exclusiva, de un email, del nombre del rol, ni de permisos de otros módulos.
+  // Coincide exactamente con la política RLS "partes_update" (ver migración 044) para que frontend y
+  // backend nunca queden desincronizados.
+  const puedeFirmar = puedeEditar || parte?.created_by === user?.id;
   const isEditable = parte?.estado === "pendiente" || parte?.estado === "borrador";
   const hasObra = !!form.obra_id;
+  const [accionError, setAccionError] = useState<string | null>(null);
 
   const handleObraChange = (obraId: string) => {
     const obra = obras.find((o: any) => o.id === obraId);
@@ -124,7 +132,8 @@ export default function ParteDetallePage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await (supabase.from("partes_diarios") as any).update({
+    setAccionError(null);
+    const { data: updated, error: updErr } = await (supabase.from("partes_diarios") as any).update({
       fecha: form.fecha, obra_id: form.obra_id || null,
       jefe_obra: form.jefe_obra || null, encargado_obra: form.encargado_obra || null,
       responsable_empresa: form.responsable_empresa || null,
@@ -132,51 +141,151 @@ export default function ParteDetallePage() {
       observaciones: form.observaciones || null,
       firma_data: firmaResp, firma_cliente: firmaCliente,
       created_by: createdBy || undefined,
-    }).eq("id", id);
+    }).eq("id", id).select("id");
+
+    // Si RLS deniega la escritura, Supabase no lanza un error: simplemente no actualiza ninguna fila.
+    // Por eso comprobamos también que `updated` tenga contenido, no solo `updErr`.
+    if (updErr || !updated || updated.length === 0) {
+      const msg = updErr?.message || "No tienes permiso para guardar este parte.";
+      setAccionError(`No se pudo guardar el parte: ${msg}`);
+      setSaving(false);
+      await logAuditErrorClient({
+        modulo: "partes", entidad: "partes_diarios", entidadId: id, accion: "editar",
+        descripcion: "Fallo al guardar un parte diario (guardar)", errorDetalle: msg,
+        userId: user?.id, userRol: user?.role,
+      });
+      return;
+    }
 
     // Delete old lines and insert new ones
-    await (supabase.from("parte_lineas") as any).delete().eq("parte_id", id);
+    const { error: delErr } = await (supabase.from("parte_lineas") as any).delete().eq("parte_id", id);
+    if (delErr) {
+      setAccionError(`El parte se guardó pero no se pudieron actualizar las líneas: ${delErr.message}`);
+      setSaving(false);
+      await logAuditErrorClient({
+        modulo: "partes", entidad: "parte_lineas", entidadId: id, accion: "editar",
+        descripcion: "Fallo al reemplazar líneas de un parte (guardar)", errorDetalle: delErr.message,
+        userId: user?.id, userRol: user?.role,
+      });
+      return;
+    }
     const valid = lineas.filter((l) => l.concepto.trim());
     if (valid.length > 0) {
-      await (supabase.from("parte_lineas") as any).insert(valid.map((l, i) => ({
+      const { error: insErr } = await (supabase.from("parte_lineas") as any).insert(valid.map((l, i) => ({
         parte_id: id, orden: i, concepto: l.concepto, tipo_trabajo_id: l.tipo_trabajo_id || null,
         fabricante: l.fabricante || null, producto: l.producto || null,
         unidades: l.unidades || null, cantidad: l.cantidad ? parseFloat(l.cantidad) : null,
       })));
+      if (insErr) {
+        setAccionError(`El parte se guardó pero no se pudieron guardar las líneas: ${insErr.message}`);
+        setSaving(false);
+        await logAuditErrorClient({
+          modulo: "partes", entidad: "parte_lineas", entidadId: id, accion: "editar",
+          descripcion: "Fallo al insertar líneas de un parte (guardar)", errorDetalle: insErr.message,
+          userId: user?.id, userRol: user?.role,
+        });
+        return;
+      }
     }
     setSaving(false); fetchData();
   };
 
   const handleFirmar = async () => {
+    setAccionError(null);
+    if (!firmaCliente) { setAccionError("Se necesita la firma del cliente."); return; }
+    // Misma regla que la política RLS "partes_update": isAdmin || canDo("partes","editar") || ser el
+    // creador del parte. Comprobación defensiva en cliente (el botón ya está deshabilitado en este caso,
+    // pero si se llega aquí igualmente no debe fallar en silencio).
+    if (!puedeFirmar) {
+      setAccionError("No tienes permiso para firmar este parte. Se necesita el permiso \"Editar\" en Partes.");
+      return;
+    }
     setSaving(true);
-    await (supabase.from("partes_diarios") as any).update({
+    const { data: updated, error: updErr } = await (supabase.from("partes_diarios") as any).update({
       firma_data: firmaResp, firma_cliente: firmaCliente, estado: "firmado",
       fecha: form.fecha, obra_id: form.obra_id || null,
       jefe_obra: form.jefe_obra || null, encargado_obra: form.encargado_obra || null,
       responsable_empresa: form.responsable_empresa || null,
       direccion: form.direccion || null, localidad: form.localidad || null, provincia: form.provincia || null,
       observaciones: form.observaciones || null,
-    }).eq("id", id);
-    await (supabase.from("parte_lineas") as any).delete().eq("parte_id", id);
+    }).eq("id", id).select("id");
+
+    // Comprobación obligatoria: una política RLS que deniega la escritura NO devuelve error, solo
+    // actualiza 0 filas. Sin esta comprobación el fallo es completamente silencioso (el bug reportado).
+    if (updErr || !updated || updated.length === 0) {
+      const msg = updErr?.message || "No tienes permiso para firmar este parte, o el parte ya no está pendiente.";
+      setAccionError(`No se pudo firmar el parte: ${msg}`);
+      setSaving(false);
+      await logAuditErrorClient({
+        modulo: "partes", entidad: "partes_diarios", entidadId: id, accion: "editar",
+        descripcion: "Fallo al firmar un parte diario", errorDetalle: msg,
+        userId: user?.id, userRol: user?.role,
+      });
+      return;
+    }
+
+    const { error: delErr } = await (supabase.from("parte_lineas") as any).delete().eq("parte_id", id);
+    if (delErr) {
+      setAccionError(`El parte se firmó pero no se pudieron actualizar las líneas: ${delErr.message}`);
+      setSaving(false);
+      await logAuditErrorClient({
+        modulo: "partes", entidad: "parte_lineas", entidadId: id, accion: "editar",
+        descripcion: "Fallo al reemplazar líneas al firmar un parte", errorDetalle: delErr.message,
+        userId: user?.id, userRol: user?.role,
+      });
+      return;
+    }
     const valid = lineas.filter((l) => l.concepto.trim());
     if (valid.length > 0) {
-      await (supabase.from("parte_lineas") as any).insert(valid.map((l, i) => ({
+      const { error: insErr } = await (supabase.from("parte_lineas") as any).insert(valid.map((l, i) => ({
         parte_id: id, orden: i, concepto: l.concepto, tipo_trabajo_id: l.tipo_trabajo_id || null,
         fabricante: l.fabricante || null, producto: l.producto || null,
         unidades: l.unidades || null, cantidad: l.cantidad ? parseFloat(l.cantidad) : null,
       })));
+      if (insErr) {
+        setAccionError(`El parte se firmó pero no se pudieron guardar las líneas: ${insErr.message}`);
+        setSaving(false);
+        await logAuditErrorClient({
+          modulo: "partes", entidad: "parte_lineas", entidadId: id, accion: "editar",
+          descripcion: "Fallo al insertar líneas al firmar un parte", errorDetalle: insErr.message,
+          userId: user?.id, userRol: user?.role,
+        });
+        return;
+      }
     }
     setSaving(false);
     await fetchData();
+    // Confirmación visible al usuario de que la firma se guardó correctamente
+    alert("Parte firmado correctamente.");
     // Envio automatico - siempre a lauroba.eneko@gmail.com (sin confirm)
     setSendingEmail(true);
     try {
-      await fetch("/api/partes/email", {
+      const res = await fetch("/api/partes/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parteId: id }),
       });
-    } catch (e) { console.error("[firma] error email:", e); }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const msg = data?.error || `Error ${res.status} al generar/enviar el PDF`;
+        console.error("[firma] error email:", msg);
+        await logAuditErrorClient({
+          modulo: "partes", entidad: "partes_diarios", entidadId: id, accion: "otro",
+          descripcion: "Fallo al generar PDF / enviar email tras firmar un parte", errorDetalle: msg,
+          userId: user?.id, userRol: user?.role,
+        });
+        // El parte YA quedó firmado correctamente; el email es un paso posterior, no bloqueante.
+        setAccionError("El parte se firmó correctamente, pero no se pudo enviar el email con el PDF. Puedes reenviarlo desde el botón \"Enviar\".");
+      }
+    } catch (e: any) {
+      console.error("[firma] error email:", e);
+      await logAuditErrorClient({
+        modulo: "partes", entidad: "partes_diarios", entidadId: id, accion: "otro",
+        descripcion: "Excepción al generar PDF / enviar email tras firmar un parte", errorDetalle: e?.message || String(e),
+        userId: user?.id, userRol: user?.role,
+      });
+      setAccionError("El parte se firmó correctamente, pero no se pudo enviar el email con el PDF. Puedes reenviarlo desde el botón \"Enviar\".");
+    }
     setSendingEmail(false);
   };
 
@@ -422,20 +531,34 @@ export default function ParteDetallePage() {
 
         {/* Actions */}
         {isEditable && (
-          <div className="flex items-center justify-between pb-6">
-            {(!firmaCliente) && (
-              <p className="text-xs text-amber-600 flex items-center gap-1">
-                ⚠ Se necesita la firma del cliente
-              </p>
+          <div className="pb-6 space-y-2">
+            {accionError && (
+              <div className="flex items-start gap-2 px-3 py-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                <span className="font-semibold shrink-0">⚠ Error:</span><span>{accionError}</span>
+              </div>
             )}
-            {firmaCliente && <div />}
-            <div className="flex items-center gap-3 ml-auto">
-            <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-surface-700 bg-surface-200 rounded-lg hover:bg-surface-300 disabled:opacity-60">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}<Save className="w-4 h-4" />Guardar
-            </button>
-            <button onClick={handleFirmar} disabled={saving || !firmaCliente} title={!firmaCliente ? "Se necesita la firma del cliente" : ""} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-60">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}<CheckCircle2 className="w-4 h-4" />Firmar
-            </button>
+            <div className="flex items-center justify-between">
+              {(!firmaCliente) && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  ⚠ Se necesita la firma del cliente
+                </p>
+              )}
+              {!puedeFirmar && firmaCliente && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  ⚠ No tienes permiso para firmar este parte (se necesita el permiso "Editar" en Partes)
+                </p>
+              )}
+              {firmaCliente && puedeFirmar && <div />}
+              <div className="flex items-center gap-3 ml-auto">
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-surface-700 bg-surface-200 rounded-lg hover:bg-surface-300 disabled:opacity-60">
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}<Save className="w-4 h-4" />Guardar
+              </button>
+              <button onClick={handleFirmar} disabled={saving || !firmaCliente || !puedeFirmar}
+                title={!firmaCliente ? "Se necesita la firma del cliente" : !puedeFirmar ? "No tienes permiso para firmar este parte" : ""}
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:opacity-60">
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}<CheckCircle2 className="w-4 h-4" />Firmar
+              </button>
+              </div>
             </div>
           </div>
         )}
