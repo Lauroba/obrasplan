@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { LOGO_BASE64 } from "@/lib/logo";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
@@ -8,104 +7,110 @@ declare module "jspdf" {
   interface jsPDF { autoTable: (options: any) => jsPDF; lastAutoTable: { finalY: number }; }
 }
 
-function fmtFecha(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      obras,                  // array de obras ya filtradas desde el cliente
-      archivedFilter,         // "activas" | "archivadas" | "todas"
-      estadoFilterLabel,      // nombre del estado seleccionado o ""
-      searchQuery,            // texto de búsqueda o ""
+      obras,               // array ya filtrado desde el cliente
+      archivedFilter,      // "activas" | "archivadas" | "todas"
+      estadosFilterLabels, // string[] — nombres de estados seleccionados (vacío = todos)
+      searchQuery,         // texto de búsqueda
     } = body as {
       obras: any[];
       archivedFilter: string;
-      estadoFilterLabel: string;
+      estadosFilterLabels: string[];
       searchQuery: string;
     };
 
-    if (!obras || obras.length === 0) {
-      return NextResponse.json(
-        { error: "No hay obras con los filtros actuales." },
-        { status: 400 }
-      );
+    if (!obras || obras.length === 0)
+      return NextResponse.json({ error: "No hay obras con los filtros actuales." }, { status: 400 });
+
+    // Ordenar: por nombre de estado → num_presupuesto natural → nombre
+    function naturalCmp(a: string, b: string): number {
+      const re = /(\d+)/g;
+      const ap = a.split(re); const bp = b.split(re);
+      for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+        const ai = ap[i] || ""; const bi = bp[i] || "";
+        const an = parseInt(ai); const bn = parseInt(bi);
+        if (!isNaN(an) && !isNaN(bn) && an !== bn) return an - bn;
+        const c = ai.localeCompare(bi, "es"); if (c !== 0) return c;
+      }
+      return 0;
     }
 
-    // PDF — A4 Horizontal
+    const sorted = [...obras].sort((a, b) => {
+      // 1. Estado
+      const ea = a.estado_custom?.nombre || "ZZZZ";
+      const eb = b.estado_custom?.nombre || "ZZZZ";
+      const ec = ea.localeCompare(eb, "es");
+      if (ec !== 0) return ec;
+      // 2. N.º presupuesto natural (sin presupuesto al final)
+      const pa = a.num_presupuesto || ""; const pb = b.num_presupuesto || "";
+      if (!pa && pb) return 1; if (pa && !pb) return -1;
+      if (pa && pb) { const nc = naturalCmp(pa, pb); if (nc !== 0) return nc; }
+      // 3. Nombre
+      return (a.nombre || "").localeCompare(b.nombre || "", "es");
+    });
+
+    // PDF — A4 horizontal
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const W = doc.internal.pageSize.getWidth();   // 297
-    const H = doc.internal.pageSize.getHeight();  // 210
+    const W = doc.internal.pageSize.getWidth();  // 297
+    const H = doc.internal.pageSize.getHeight(); // 210
     const M = 14;
 
-    // Fecha y hora de generación
     const ahora = new Date();
-    const fmtAhora = ahora.toLocaleDateString("es-ES", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-    }) + " " + ahora.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    const fmtAhora = ahora.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" })
+      + " " + ahora.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
-    // ── Función cabecera (se repite en cada página) ──────────────────
-    const addHeader = (pageNum: number, totalPages: number) => {
-      // Logo
-      try {
-        doc.addImage(`data:image/jpeg;base64,${LOGO_BASE64}`, "JPEG", M, 6, 28, 18);
-      } catch { /* logo opcional */ }
+    const filtrosTexto: string[] = [];
+    if (archivedFilter === "activas") filtrosTexto.push("Activas");
+    else if (archivedFilter === "archivadas") filtrosTexto.push("Archivadas");
+    else filtrosTexto.push("Todas");
+    if (estadosFilterLabels?.length > 0) filtrosTexto.push(`Estados: ${estadosFilterLabels.join(", ")}`);
+    if (searchQuery) filtrosTexto.push(`Búsqueda: "${searchQuery}"`);
 
-      // Empresa
+    const addHeader = () => {
+      try { doc.addImage(`data:image/jpeg;base64,${LOGO_BASE64}`, "JPEG", M, 5, 26, 17); } catch { /* */ }
       doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setTextColor(120);
-      doc.text("Loynek Soluciones Técnicas", M + 30, 12);
-
-      // Título
-      doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(20);
-      doc.text("Informe de Obras", W / 2, 13, { align: "center" });
-
-      // Subtítulo con filtros
-      const filtros: string[] = [];
-      if (archivedFilter === "activas") filtros.push("Activas");
-      else if (archivedFilter === "archivadas") filtros.push("Archivadas");
-      else filtros.push("Todas");
-      if (estadoFilterLabel) filtros.push(`Estado: ${estadoFilterLabel}`);
-      if (searchQuery) filtros.push(`Búsqueda: "${searchQuery}"`);
-
-      doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(80);
-      doc.text(filtros.join("  ·  "), W / 2, 20, { align: "center" });
-
-      // Fecha generación + página
-      doc.setFontSize(7); doc.setTextColor(130);
-      doc.text(`Generado el ${fmtAhora}`, W - M, 10, { align: "right" });
-      doc.text(`${pageNum} / ${totalPages}`, W - M, 15, { align: "right" });
-      doc.text(`${obras.length} obra${obras.length !== 1 ? "s" : ""}`, W - M, 20, { align: "right" });
-
-      // Línea separadora
+      doc.text("Loynek Soluciones Técnicas", M + 28, 11);
+      doc.setFontSize(13); doc.setFont("helvetica", "bold"); doc.setTextColor(20);
+      doc.text("Informe de Obras", W / 2, 12, { align: "center" });
+      doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(80);
+      const fl = filtrosTexto.join("  ·  ");
+      if (fl.length > 90) {
+        // Partir en dos líneas si es muy largo
+        const mid = filtrosTexto.slice(0, Math.ceil(filtrosTexto.length / 2)).join("  ·  ");
+        const rest = filtrosTexto.slice(Math.ceil(filtrosTexto.length / 2)).join("  ·  ");
+        doc.text(mid, W / 2, 18, { align: "center" });
+        doc.text(rest, W / 2, 22, { align: "center" });
+      } else {
+        doc.text(fl, W / 2, 19, { align: "center" });
+      }
+      doc.setFontSize(6.5); doc.setTextColor(130);
+      doc.text(`Generado: ${fmtAhora}`, W - M, 9, { align: "right" });
+      doc.text(`${sorted.length} obra${sorted.length !== 1 ? "s" : ""}`, W - M, 14, { align: "right" });
       doc.setDrawColor(220); doc.setLineWidth(0.4);
-      doc.line(M, 24, W - M, 24);
+      doc.line(M, 25, W - M, 25);
     };
 
-    // ── Filas de la tabla ────────────────────────────────────────────
-    const rows = obras.map((o: any) => [
-      o.cliente?.nombre || o.cliente_id || "—",
-      o.nombre || "—",
-      o.estado_custom?.nombre || "—",
+    // Filas: columnas N.º Presupuesto | Cliente | Obra | Estado | Anotaciones
+    const rows = sorted.map((o: any) => [
       o.num_presupuesto || "—",
-      "",   // Anotaciones — celda vacía para escritura manual
+      o.cliente?.nombre || "—",
+      o.nombre || "—",
+      o.estado_custom?.nombre || "Sin estado",
+      "",  // Anotaciones vacías
     ]);
 
-    // ── Generar tabla ────────────────────────────────────────────────
-    // Primera pasada para calcular páginas (jsPDF no tiene API de "preview")
-    // Generamos directamente; el totalPages lo ponemos en el footer
     doc.autoTable({
-      startY: 27,
-      head: [["CLIENTE", "OBRA", "ESTADO", "N.º PRESUPUESTO", "ANOTACIONES"]],
+      startY: 28,
+      head: [["N.º PRESUPUESTO", "CLIENTE", "OBRA", "ESTADO", "ANOTACIONES"]],
       body: rows,
       margin: { left: M, right: M },
       tableWidth: W - M * 2,
       styles: {
-        fontSize: 8.5,
-        cellPadding: { top: 3, bottom: 3, left: 2.5, right: 2.5 },
+        fontSize: 8,
+        cellPadding: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 },
         lineColor: [210, 210, 210],
         lineWidth: 0.2,
         valign: "middle",
@@ -115,34 +120,31 @@ export async function POST(req: NextRequest) {
         fillColor: [220, 38, 38],
         textColor: 255,
         fontStyle: "bold",
-        fontSize: 7.5,
+        fontSize: 7,
         halign: "center",
         cellPadding: { top: 3, bottom: 3, left: 2, right: 2 },
       },
       alternateRowStyles: { fillColor: [250, 250, 252] },
       theme: "grid",
       columnStyles: {
-        0: { cellWidth: 42 },                          // Cliente
-        1: { cellWidth: 70, fontStyle: "bold" },       // Obra (más ancho, negrita)
-        2: { cellWidth: 38, halign: "center" },        // Estado
-        3: { cellWidth: 32, halign: "center" },        // N.º Presupuesto
-        4: { cellWidth: "auto", minCellHeight: 12 },   // Anotaciones (el resto del ancho)
+        0: { cellWidth: 28, halign: "center", fontStyle: "bold", fontSize: 7.5 },  // N.º presupuesto
+        1: { cellWidth: 45 },                                                        // Cliente
+        2: { cellWidth: 72, fontStyle: "bold" },                                    // Obra (más ancho)
+        3: { cellWidth: 36, halign: "center" },                                      // Estado
+        4: { cellWidth: "auto", minCellHeight: 10 },                                // Anotaciones
       },
-      // Evitar que filas se corten entre páginas
       rowPageBreak: "avoid",
-      // Cabecera repetida en cada página (jspdf-autotable lo hace automáticamente con head)
       showHead: "everyPage",
-      // Marcador visual en la columna Anotaciones
       didParseCell: (data: any) => {
+        // Columna Anotaciones — fondo tintado para distinguir
         if (data.section === "body" && data.column.index === 4) {
-          // Fondo ligeramente diferente para la columna de anotaciones
-          data.cell.styles.fillColor = [246, 248, 255];
+          data.cell.styles.fillColor = [245, 248, 255];
         }
-        if (data.section === "body" && data.column.index === 2) {
-          // Colorear el estado con el color de la obra si existe
-          const obra = obras[data.row.index];
+        // Columna Estado — colorear con el color del estado
+        if (data.section === "body" && data.column.index === 3) {
+          const obra = sorted[data.row.index];
           const color = obra?.estado_custom?.color;
-          if (color && color !== "") {
+          if (color) {
             const hex = color.replace("#", "");
             const r = parseInt(hex.substring(0, 2), 16);
             const g = parseInt(hex.substring(2, 4), 16);
@@ -155,40 +157,30 @@ export async function POST(req: NextRequest) {
           }
         }
       },
-      didDrawPage: (data: any) => {
-        // Cabecera y pie en cada página (totalPages aún no disponible aquí)
-        const pageNum = (doc as any).internal.getCurrentPageInfo().pageNumber;
-        addHeader(pageNum, 0); // totalPages = 0 provisional
-
-        // Pie de página
-        doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setTextColor(150);
+      didDrawPage: () => {
+        addHeader();
+        doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setTextColor(150);
         doc.text("LOYNEK Soluciones Técnicas — ObrasPlan", M, H - 5);
         doc.line(M, H - 8, W - M, H - 8);
       },
     });
 
-    // ── Corregir numeración con total de páginas real ────────────────
+    // Numeración correcta (dos pasadas)
     const totalPages = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
-      // Sobreescribir el número de página con el total correcto
-      // Fondo blanco para tapar el "0" provisional
       doc.setFillColor(255, 255, 255);
-      doc.rect(W - M - 20, 12, 22, 6, "F");
-      doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(130);
-      doc.text(`${i} / ${totalPages}`, W - M, 15, { align: "right" });
+      doc.rect(W - M - 22, 11, 24, 6, "F");
+      doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setTextColor(130);
+      doc.text(`Pág. ${i} / ${totalPages}`, W - M, 15, { align: "right" });
     }
 
-    // ── Columna Anotaciones: borde visible para escritura manual ─────
-    // (ya viene del theme: "grid" — el borde está)
-
-    const nombreArchivo = `obras_${archivedFilter}_${ahora.getFullYear()}${String(ahora.getMonth() + 1).padStart(2, "0")}${String(ahora.getDate()).padStart(2, "0")}.pdf`;
-
+    const fecha = `${ahora.getFullYear()}${String(ahora.getMonth()+1).padStart(2,"0")}${String(ahora.getDate()).padStart(2,"0")}`;
     const buf = Buffer.from(doc.output("datauristring").split(",")[1], "base64");
     return new NextResponse(buf, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${nombreArchivo}"`,
+        "Content-Disposition": `inline; filename="informe_obras_${archivedFilter}_${fecha}.pdf"`,
       },
     });
   } catch (err: any) {
