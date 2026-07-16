@@ -237,20 +237,22 @@ function SinAsignarRow({ dateStrs, days, assignGrid, resInfo, onRemove, dw, isWe
 }
 
 // ---- Sortable Row for Vista Obras ----
-function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved, puedeEliminar }: {
+function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflictResources, onRemove, onArchive, onAddManual, onChangeEstado, estados, dw, isWeekend, isToday, notas, onNoteSaved, puedeEliminar, puedeReordenar: puedeReord, activeOver }: {
   obra: Obra; dateStrs: string[]; days: Date[]; assignGrid: Record<string, Asignacion[]>;
   obraRange?: { min: string; max: string }; resInfo: Record<string, ResourceInfo>;
   conflictResources: Set<string>; onRemove: (id: string) => void; onArchive: (id: string, v: boolean) => void;
   onAddManual: (obraId: string, obraName: string) => void; onChangeEstado: (obraId: string, estadoId: string) => void;
   estados: EstadoObra[]; dw: number; isWeekend: (d: Date) => boolean; isToday: (d: Date) => boolean;
   notas: Record<string, any>; onNoteSaved: () => void; puedeEliminar: boolean;
+  puedeReordenar?: boolean;
+  activeOver?: { obraId: string; dateStr: string } | null;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: obra.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
     <div ref={setNodeRef} style={style} className={cn("flex border-b border-surface-100 group bg-white", obra.archivada && "opacity-50")}>
       <div className="shrink-0 flex items-center border-r border-surface-100" style={{ width: LABEL_W, minWidth: LABEL_W }}>
-        <div {...attributes} {...listeners} className="px-1 py-3 cursor-grab text-surface-300 hover:text-surface-500"><GripVertical className="w-3.5 h-3.5" /></div>
+        <div {...(puedeReord ? { ...attributes, ...listeners } : {})} className={cn("px-1 py-3 text-surface-300", puedeReord ? "cursor-grab hover:text-surface-500" : "cursor-default opacity-30")}><GripVertical className="w-3.5 h-3.5" /></div>
         <div className="w-2 h-2 rounded-full shrink-0 mr-1.5" style={{ backgroundColor: obra.color || "#DC2626" }} />
         <div className="flex-1 min-w-0 py-1.5 pr-1">
           <Link href={`/obras/${obra.id}`} className="text-[11px] font-medium text-surface-900 hover:text-brand-600 truncate block" onClick={(e) => e.stopPropagation()}>{obra.nombre}</Link>
@@ -272,7 +274,13 @@ function ObraRow({ obra, dateStrs, days, assignGrid, obraRange, resInfo, conflic
         const day = days[i]; const inRange = obraRange && ds >= obraRange.min && ds <= obraRange.max;
         return (
           <div key={ds} style={{ width: dw, minWidth: dw }} className={cn("border-r border-surface-100 relative",
-            isToday(day) ? "bg-brand-50/30" : isWeekend(day) ? "bg-surface-50/60" : "")}>
+            activeOver?.obraId === obra.id && activeOver?.dateStr === ds
+                ? "bg-blue-100 ring-2 ring-inset ring-blue-400"
+                : activeOver?.obraId === obra.id
+                ? "bg-blue-50"
+                : activeOver?.dateStr === ds && !activeOver?.obraId?.startsWith("SIN")
+                ? "bg-blue-50/60"
+                : isToday(day) ? "bg-amber-50/50" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             {inRange && <div className="absolute inset-0" style={{ backgroundColor: `${obra.color || "#DC2626"}08` }} />}
             <div className="relative h-full min-h-[44px] group">
               <ObraCell obraId={obra.id} dateStr={ds} assignments={cellAssigns} resInfo={resInfo}
@@ -312,7 +320,13 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
         const personDayAssigs = assignGrid[`person-${persona.id}|${ds}`] || [];
         return (
           <div key={ds} style={{ width: dw, minWidth: dw }}
-            className={cn("border-r border-surface-100", isToday(day) ? "bg-brand-50/30" : isWeekend(day) ? "bg-surface-50/60" : "")}>
+            className={cn("border-r border-surface-100", activeOver?.obraId === obra.id && activeOver?.dateStr === ds
+                ? "bg-blue-100 ring-2 ring-inset ring-blue-400"
+                : activeOver?.obraId === obra.id
+                ? "bg-blue-50"
+                : activeOver?.dateStr === ds && !activeOver?.obraId?.startsWith("SIN")
+                ? "bg-blue-50/60"
+                : isToday(day) ? "bg-amber-50/50" : isWeekend(day) ? "bg-surface-50/60" : "")}>
             <RrhhCell recursoId={persona.id} dateStr={ds} personAssignments={personDayAssigs}
               obras={obras} onRemove={onRemove} dw={dw} />
           </div>
@@ -328,7 +342,8 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
 export default function PlanificacionPage() {
   const supabase = createClient();
   const { isAdmin: isAdminPlan, canDo: canDoPlan } = usePermissions();
-  const puedeAsignar = isAdminPlan || canDoPlan("planificacion", "crear");
+  const puedeAsignar    = isAdminPlan || canDoPlan("planificacion", "crear");
+  const puedeReordenar  = isAdminPlan || canDoPlan("planificacion", "editar");
 
   const [obras, setObras] = useState<Obra[]>([]); const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
   const [rrhh, setRrhh] = useState<RecursoHumano[]>([]);
@@ -354,6 +369,7 @@ export default function PlanificacionPage() {
     return () => window.removeEventListener("resize", check);
   }, []);
   const [activeDrag, setActiveDrag] = useState<{ nombre: string; foto_url?: string | null; color?: string; iconType: string } | null>(null);
+  const [activeOver, setActiveOver] = useState<{ obraId: string; dateStr: string } | null>(null);
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); });
   const [manualModal, setManualModal] = useState<{ obraId: string; obraName: string } | null>(null);
   // Modal confirmación eliminación de asignación
@@ -524,7 +540,7 @@ export default function PlanificacionPage() {
   const handleDragStart = (e: DragStartEvent) => { const d = e.active.data.current; if (d) setActiveDrag({ nombre: d.nombre, foto_url: d.foto_url, color: d.color, iconType: d.iconType }); };
 
   const handleDragEnd = async (e: DragEndEvent) => {
-    setActiveDrag(null);
+    setActiveDrag(null); setActiveOver(null);
     if (!e.over) return;
     const aid = String(e.active.id); const oid = String(e.over.id);
 
@@ -610,6 +626,7 @@ export default function PlanificacionPage() {
       if (aid === SIN_ASIGNAR_ID || oid === SIN_ASIGNAR_ID) return;
       const oldIdx = obraIds.indexOf(aid); const newIdx = obraIds.indexOf(oid);
       if (oldIdx === -1 || newIdx === -1) return;
+      if (!puedeReordenar) return;
       const newOrder = arrayMove(obraIds, oldIdx, newIdx);
       await Promise.all(newOrder.map((id, i) => supabase.from("obras").update({ orden_gantt: i } as any).eq("id", id)));
       fetchData();
@@ -873,7 +890,17 @@ export default function PlanificacionPage() {
   // Desktop view
   return (
     <AppLayout>
-      <DndContext sensors={sensors} collisionDetection={customCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={customCollision}
+        onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+        onDragOver={(e) => {
+          if (!e.over) { setActiveOver(null); return; }
+          const oid = String(e.over.id);
+          if (oid.startsWith("cell-")) {
+            const [obraId, dateStr] = oid.replace("cell-", "").split("|");
+            setActiveOver({ obraId, dateStr });
+          } else { setActiveOver(null); }
+        }}
+        onDragCancel={() => { setActiveDrag(null); setActiveOver(null); }}>
         <div className="animate-fade-in h-[calc(100vh-7rem)] flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between mb-2 shrink-0">
@@ -933,8 +960,11 @@ export default function PlanificacionPage() {
                     </div>
                     {days.map((d, i) => (
                       <div key={i} className={cn("text-center py-1.5 border-r border-surface-100 text-[10px] shrink-0 leading-tight",
-                        isTodayFn(d) ? "bg-brand-50 font-bold text-brand-700" : isWeekendFn(d) ? "bg-surface-50 text-surface-400" : "text-surface-600")}
-                        style={{ width: dw, minWidth: dw }}>{dayLabel(d, i)}</div>
+                        isTodayFn(d) ? "bg-brand-100 font-bold text-brand-700 border-b-2 border-b-brand-500" : isWeekendFn(d) ? "bg-surface-50 text-surface-400" : "text-surface-600")}
+                        style={{ width: dw, minWidth: dw }}>
+                        {dayLabel(d, i)}
+                        {isTodayFn(d) && <span className="block text-[7px] font-extrabold text-brand-500 tracking-widest uppercase -mt-0.5">hoy</span>}
+                      </div>
                     ))}
                   </div>
 
@@ -956,7 +986,8 @@ export default function PlanificacionPage() {
                             onAddManual={(id, name) => { setManualModal({ obraId: id, obraName: name }); setManualForm({ recurso_tipo: "humano", recurso_id: "", fecha_inicio: "", fecha_fin: "" }); }}
                             onChangeEstado={async (oId, eId) => { await supabase.from("obras").update({ estado_obra_id: eId || null } as any).eq("id", oId); fetchData(); }}
                             estados={estados} dw={dw} isWeekend={isWeekendFn} isToday={isTodayFn}
-                            notas={notas} onNoteSaved={fetchData} />
+                            notas={notas} onNoteSaved={fetchData}
+                            puedeReordenar={puedeReordenar} activeOver={activeOver} />
                         ))}
                       </SortableContext>
                     </>
