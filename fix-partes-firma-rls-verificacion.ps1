@@ -1,0 +1,84 @@
+#Requires -Version 5.1
+# fix-partes-firma-rls-verificacion.ps1
+#
+# CAUSA EXACTA (diagnostico, sin tocar codigo hasta confirmarlo):
+#
+# El mensaje "new row violates row-level security policy for table
+# partes_diarios" es el texto EXCLUSIVO que lanza Postgres cuando falla el
+# WITH CHECK de un INSERT/UPDATE (nunca por SELECT/USING). Solo existe una
+# politica UPDATE sobre partes_diarios ("partes_update"), asi que el fallo
+# esta ahi con certeza.
+#
+# Se revisaron y DESCARTARON explicitamente (con evidencia, ver mensaje del
+# asistente):
+#   - Recursividad entre users/roles/rol_permisos: las 3 tienen SELECT
+#     USING(true) (abierto), sin obstaculo de RLS para user_has_permiso().
+#   - Otra politica UPDATE o restrictiva oculta: no existe ninguna otra.
+#   - get_user_role() / enum user_role: correctos, sin cambios.
+#
+# La logica de la migracion 044 es estructuralmente correcta. Si el error
+# persiste, solo caben dos explicaciones: (a) la migracion 044 no llego a
+# ejecutarse completa en Supabase (el .ps1 anterior solo escribe el fichero
+# en disco + git push; el SQL requiere ejecutarse aparte en el SQL Editor),
+# o (b) el rol_id de Lucian no apunta correctamente a un rol con editar=true
+# en rol_permisos para pantalla='partes' (dato, no politica).
+#
+# IMPLEMENTACION (idempotente, segura de re-ejecutar aunque la 044 ya
+# se hubiera aplicado):
+#
+# 1. supabase/migrations/045_partes_firma_rls_verificacion.sql (NUEVO)
+#    - Re-crea user_has_permiso() (CREATE OR REPLACE) y la politica
+#      "partes_update" (DROP + CREATE) exactamente igual que en la 044.
+#    - Anade un bloque DO de VERIFICACION AUTOMATICA: tras ejecutar el
+#      script, consulta pg_policies y lanza RAISE EXCEPTION si la politica
+#      no existe o si el WITH CHECK activo no contiene user_has_permiso --
+#      asi el SQL Editor de Supabase MUESTRA visiblemente si algo no se
+#      aplico, en vez de fallar en silencio.
+#    - Incluye al final una consulta de DIAGNOSTICO de solo lectura
+#      (comentada, para ejecutar aparte) que cruza users/roles/rol_permisos
+#      y muestra exactamente que permiso resuelve un email concreto -- para
+#      confirmar en 10 segundos si el problema es de politica o de datos.
+#
+# NO se modifica ningun archivo de frontend en esta entrega: el manejo de
+# errores ya anadido en la entrega anterior (handleFirmar/handleSave) ya
+# esta mostrando correctamente este error de Postgres en pantalla -- es
+# precisamente gracias a eso que se pudo ver el mensaje exacto reportado.
+#
+# EJECUCION: ejecuta el SQL completo en el SQL Editor de Supabase. Al
+# terminar deberias ver en los "Results/Notices":
+#   NOTICE: Verificacion OK: politica "partes_update" activa con WITH CHECK correcto.
+# Si en vez de eso ves un ERROR, copialo y lo resolvemos con ese dato exacto.
+# Despues, ejecuta tambien la consulta de diagnostico comentada al final
+# (sustituyendo el email si hace falta) y comparte el resultado si el
+# problema persiste.
+
+$ErrorActionPreference = "Stop"
+$RepoPath = "C:\Users\lauro\Desktop\LOYNEK\ObrasPlan\obrasplan-mvp\obrasplan"
+if (-not (Test-Path $RepoPath)) { Write-Host "ERROR: no se encuentra $RepoPath" -ForegroundColor Red; exit 1 }
+Set-Location $RepoPath
+git pull --quiet 2>$null
+Write-Host "" ; Write-Host "==> fix: re-aplicar RLS de firma de partes (idempotente) + verificacion + diagnostico" -ForegroundColor Cyan
+
+Write-Host "  -> supabase\migrations\045_partes_firma_rls_verificacion.sql" -ForegroundColor Gray
+$dir = Split-Path -Parent (Join-Path $RepoPath "supabase\migrations\045_partes_firma_rls_verificacion.sql")
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+$bytes = [System.Convert]::FromBase64String("LS0gPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KLS0gT2JyYXNQbGFuIOKAlCBNaWdyYWNpw7NuIDQ1OiBSZS1hcGxpY2FyIFJMUyBkZSBmaXJtYSBkZSBwYXJ0ZXMgKGlkZW1wb3RlbnRlKQotLSAgICAgICAgICAgICAgICAgICAgICAgICAgICArIHZlcmlmaWNhY2nDs24gKyBkaWFnbsOzc3RpY28KLS0gPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KLS0KLS0gQ29udGV4dG86IHRyYXMgYXBsaWNhciBsYSBtaWdyYWNpw7NuIDA0NCwgbHVjaWFuLmxleW5hQGdtYWlsLmNvbSBzaWd1ZQotLSByZWNpYmllbmRvICJuZXcgcm93IHZpb2xhdGVzIHJvdy1sZXZlbCBzZWN1cml0eSBwb2xpY3kgZm9yIHRhYmxlCi0tIHBhcnRlc19kaWFyaW9zIiBhbCBmaXJtYXIuIEVzZSBtZW5zYWplIGVzIGV4Y2x1c2l2byBkZSB1biBmYWxsbyBkZQotLSBXSVRIIENIRUNLIGVuIElOU0VSVC9VUERBVEUgKG51bmNhIGRlIFNFTEVDVC9VU0lORyksIHkgc29sbyBleGlzdGUgdW5hCi0tIHBvbMOtdGljYSBVUERBVEUgc29icmUgcGFydGVzX2RpYXJpb3MgKCJwYXJ0ZXNfdXBkYXRlIiksIGFzw60gcXVlIGVsIGZhbGxvCi0tIGVzdMOhIGFow60uCi0tCi0tIFNlIGhhIHJldmlzYWRvIHkgZGVzY2FydGFkbzoKLS0gICAtIFJlY3Vyc2l2aWRhZCBlbnRyZSB1c2Vycy9yb2xlcy9yb2xfcGVybWlzb3M6IHN1cyBwb2zDrXRpY2FzIGRlIFNFTEVDVAotLSAgICAgc29uIFVTSU5HKHRydWUpIChhYmllcnRhcyksIHNpbiBvYnN0w6FjdWxvIGRlIFJMUyBwYXJhIGxhIGZ1bmNpw7NuLgotLSAgIC0gT3RyYSBwb2zDrXRpY2EgVVBEQVRFIG8gcmVzdHJpY3RpdmEgb2N1bHRhIHNvYnJlIHBhcnRlc19kaWFyaW9zOiBubwotLSAgICAgZXhpc3RlIG5pbmd1bmEgb3RyYS4KLS0gICAtIGdldF91c2VyX3JvbGUoKSAvIGVudW0gdXNlcl9yb2xlOiBjb3JyZWN0b3MuCi0tCi0tIEVzdGEgbWlncmFjacOzbiBlcyAxMDAlIGlkZW1wb3RlbnRlIChDUkVBVEUgT1IgUkVQTEFDRSAvIERST1ArQ1JFQVRFKSBwb3IKLS0gc2kgbGEgMDQ0IG5vIGxsZWfDsyBhIGVqZWN1dGFyc2UgY29tcGxldGEsIHkgYcOxYWRlIHVuYSB2ZXJpZmljYWNpw7NuCi0tIGF1dG9tw6F0aWNhIGFsIGZpbmFsIHBhcmEgY29uZmlybWFyIGVuIGVsIHByb3BpbyBTUUwgRWRpdG9yIHF1ZSBsYQotLSBwb2zDrXRpY2EgcXVlZGEgYWN0aXZhIGNvbiBsYSBkZWZpbmljacOzbiBjb3JyZWN0YS4KLS0gPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQotLSAxKSBGdW5jacOzbiBkZSBwZXJtaXNvcyAoaWTDqW50aWNhIGEgbGEgZGUgbGEgbWlncmFjacOzbiAwNDQ7IENSRUFURSBPUgotLSAgICBSRVBMQUNFIGxhIGRlamEgaWd1YWwgc2kgeWEgZXhpc3TDrWEsIG8gbGEgY3JlYSBzaSBubyBsbGVnw7MgYSBhcGxpY2Fyc2UpCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQpDUkVBVEUgT1IgUkVQTEFDRSBGVU5DVElPTiB1c2VyX2hhc19wZXJtaXNvKHBfcGFudGFsbGEgVEVYVCwgcF9hY2Npb24gVEVYVCkKUkVUVVJOUyBCT09MRUFOIEFTICQkCkRFQ0xBUkUKICB2X3JvbF9pZCBVVUlEOwogIHZfaXNfYWRtaW4gQk9PTEVBTjsKICB2X3Zpc2libGUgQk9PTEVBTjsKICB2X2NyZWFyIEJPT0xFQU47CiAgdl9lZGl0YXIgQk9PTEVBTjsKICB2X2VsaW1pbmFyIEJPT0xFQU47CiAgdl9hc2lnbmFyIEJPT0xFQU47CkJFR0lOCiAgSUYgZ2V0X3VzZXJfcm9sZSgpID0gJ2FkbWluJyBUSEVOCiAgICBSRVRVUk4gdHJ1ZTsKICBFTkQgSUY7CgogIFNFTEVDVCByb2xfaWQgSU5UTyB2X3JvbF9pZCBGUk9NIHVzZXJzIFdIRVJFIGlkID0gYXV0aC51aWQoKTsKICBJRiB2X3JvbF9pZCBJUyBOVUxMIFRIRU4KICAgIFJFVFVSTiBmYWxzZTsKICBFTkQgSUY7CgogIFNFTEVDVCBpc19hZG1pbiBJTlRPIHZfaXNfYWRtaW4gRlJPTSByb2xlcyBXSEVSRSBpZCA9IHZfcm9sX2lkOwogIElGIHZfaXNfYWRtaW4gVEhFTgogICAgUkVUVVJOIHRydWU7CiAgRU5EIElGOwoKICBTRUxFQ1QgdmlzaWJsZSwgY3JlYXIsIGVkaXRhciwgZWxpbWluYXIsIGFzaWduYXIKICAgIElOVE8gdl92aXNpYmxlLCB2X2NyZWFyLCB2X2VkaXRhciwgdl9lbGltaW5hciwgdl9hc2lnbmFyCiAgICBGUk9NIHJvbF9wZXJtaXNvcyBXSEVSRSByb2xfaWQgPSB2X3JvbF9pZCBBTkQgcGFudGFsbGEgPSBwX3BhbnRhbGxhOwoKICBJRiBOT1QgRk9VTkQgVEhFTgogICAgUkVUVVJOIGZhbHNlOwogIEVORCBJRjsKCiAgUkVUVVJOIENBU0UgcF9hY2Npb24KICAgIFdIRU4gJ3Zpc2libGUnICBUSEVOIHZfdmlzaWJsZQogICAgV0hFTiAnY3JlYXInICAgIFRIRU4gdl9jcmVhcgogICAgV0hFTiAnZWRpdGFyJyAgIFRIRU4gdl9lZGl0YXIKICAgIFdIRU4gJ2VsaW1pbmFyJyBUSEVOIHZfZWxpbWluYXIKICAgIFdIRU4gJ2FzaWduYXInICBUSEVOIHZfYXNpZ25hcgogICAgRUxTRSBmYWxzZQogIEVORDsKRU5EOwokJCBMQU5HVUFHRSBwbHBnc3FsIFNFQ1VSSVRZIERFRklORVIgU1RBQkxFOwoKQ09NTUVOVCBPTiBGVU5DVElPTiB1c2VyX2hhc19wZXJtaXNvKFRFWFQsIFRFWFQpIElTCiAgJ1JlcGxpY2EgdXNlUGVybWlzc2lvbnMoKS5jYW5EbyhwYW50YWxsYSwgYWNjaW9uKSBkZWwgZnJvbnRlbmQgcGFyYSB1c2FybGEgZW4gcG9sw610aWNhcyBSTFMuIE5vIGRlcGVuZGUgZGUgZW1haWwgbmkgZGUgbm9tYnJlIGRlIHJvbC4nOwoKLS0gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCi0tIDIpIFBvbMOtdGljYSBwYXJ0ZXNfdXBkYXRlIChpZMOpbnRpY2EgYSBsYSAwNDQ7IHNlIHZ1ZWx2ZSBhIGNyZWFyIHBvciBzaQotLSAgICBubyBsbGVnw7MgYSBhcGxpY2Fyc2UsIG8gcGFyYSBjb25maXJtYXIgcXVlIHF1ZWRhIGV4YWN0YW1lbnRlIGFzw60pCi0tIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQpEUk9QIFBPTElDWSBJRiBFWElTVFMgInBhcnRlc191cGRhdGUiIE9OIHBhcnRlc19kaWFyaW9zOwpDUkVBVEUgUE9MSUNZICJwYXJ0ZXNfdXBkYXRlIiBPTiBwYXJ0ZXNfZGlhcmlvcyBGT1IgVVBEQVRFCiAgVVNJTkcgKAogICAgZ2V0X3VzZXJfcm9sZSgpID0gJ2FkbWluJwogICAgT1IgKAogICAgICBlc3RhZG8gSU4gKCdib3JyYWRvcicsICdwZW5kaWVudGUnLCAncmVjaGF6YWRvJykKICAgICAgQU5EIChjcmVhdGVkX2J5ID0gYXV0aC51aWQoKSBPUiB1c2VyX2hhc19wZXJtaXNvKCdwYXJ0ZXMnLCAnZWRpdGFyJykpCiAgICApCiAgKQogIFdJVEggQ0hFQ0sgKAogICAgZ2V0X3VzZXJfcm9sZSgpID0gJ2FkbWluJwogICAgT1IgY3JlYXRlZF9ieSA9IGF1dGgudWlkKCkKICAgIE9SIHVzZXJfaGFzX3Blcm1pc28oJ3BhcnRlcycsICdlZGl0YXInKQogICk7CgotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KLS0gMykgVmVyaWZpY2FjacOzbiBhdXRvbcOhdGljYTogbXVlc3RyYSBsYSBkZWZpbmljacOzbiByZWFsIHkgYWN0aXZhIGRlIGxhCi0tICAgIHBvbMOtdGljYSB0cmFzIGVqZWN1dGFyIGVzdGUgc2NyaXB0LiBEZWJlIGFwYXJlY2VyIGV4YWN0YW1lbnRlIFVOQSBmaWxhLgotLSAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KRE8gJCQKREVDTEFSRQogIHZfY291bnQgSU5UOwogIHZfcXVhbCBURVhUOwogIHZfY2hlY2sgVEVYVDsKQkVHSU4KICBTRUxFQ1QgY291bnQoKikgSU5UTyB2X2NvdW50IEZST00gcGdfcG9saWNpZXMKICAgIFdIRVJFIHRhYmxlbmFtZSA9ICdwYXJ0ZXNfZGlhcmlvcycgQU5EIHBvbGljeW5hbWUgPSAncGFydGVzX3VwZGF0ZSc7CgogIElGIHZfY291bnQgPD4gMSBUSEVOCiAgICBSQUlTRSBFWENFUFRJT04gJ0VSUk9SIERFIFZFUklGSUNBQ0lPTjogc2UgZXNwZXJhYmEgZXhhY3RhbWVudGUgMSBwb2zDrXRpY2EgInBhcnRlc191cGRhdGUiIHNvYnJlIHBhcnRlc19kaWFyaW9zLCBzZSBlbmNvbnRyYXJvbiAlJywgdl9jb3VudDsKICBFTkQgSUY7CgogIFNFTEVDVCBxdWFsLCB3aXRoX2NoZWNrIElOVE8gdl9xdWFsLCB2X2NoZWNrIEZST00gcGdfcG9saWNpZXMKICAgIFdIRVJFIHRhYmxlbmFtZSA9ICdwYXJ0ZXNfZGlhcmlvcycgQU5EIHBvbGljeW5hbWUgPSAncGFydGVzX3VwZGF0ZSc7CgogIElGIHZfY2hlY2sgSVMgTlVMTCBPUiB2X2NoZWNrIE5PVCBJTElLRSAnJXVzZXJfaGFzX3Blcm1pc28lJyBUSEVOCiAgICBSQUlTRSBFWENFUFRJT04gJ0VSUk9SIERFIFZFUklGSUNBQ0lPTjogZWwgV0lUSCBDSEVDSyBhY3Rpdm8gZGUgInBhcnRlc191cGRhdGUiIG5vIGNvbnRpZW5lIHVzZXJfaGFzX3Blcm1pc28uIERlZmluaWNpw7NuIGFjdHVhbDogJScsIHZfY2hlY2s7CiAgRU5EIElGOwoKICBSQUlTRSBOT1RJQ0UgJ+KchSBWZXJpZmljYWNpw7NuIE9LOiBwb2zDrXRpY2EgInBhcnRlc191cGRhdGUiIGFjdGl2YSBjb24gV0lUSCBDSEVDSyBjb3JyZWN0by4nOwogIFJBSVNFIE5PVElDRSAnVVNJTkc6ICUnLCB2X3F1YWw7CiAgUkFJU0UgTk9USUNFICdXSVRIIENIRUNLOiAlJywgdl9jaGVjazsKRU5EICQkOwoKLS0gPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KLS0gRElBR07Dk1NUSUNPIChlamVjdXRhciBwb3Igc2VwYXJhZG8sIGVzIGRlIHNvbG8gbGVjdHVyYSDigJQgbm8gbW9kaWZpY2EgbmFkYSkKLS0gPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KLS0gQ29waWEgeSBlamVjdXRhIGVzdGEgY29uc3VsdGEgcGFyYSBjb25maXJtYXIgcXXDqSByZXN1ZWx2ZSByZWFsbWVudGUKLS0gU3VwYWJhc2UgcGFyYSB1biB1c3VhcmlvIGNvbmNyZXRvIChjYW1iaWEgZWwgZW1haWwgc2kgaGFjZSBmYWx0YSk6Ci0tCi0tIFNFTEVDVAotLSAgIHUuZW1haWwsCi0tICAgdS5yb2xlICAgICAgICAgICAgQVMgdXNlcnNfcm9sZV9sZWdhY3ksICAgLS0gYWRtaW4vbGVjdHVyYS9wYXJ0ZXMgKGVudW0gYW50aWd1bykKLS0gICB1LnJvbF9pZCwKLS0gICByLm5vbWJyZSAgICAgICAgICBBUyByb2xfbm9tYnJlLAotLSAgIHIuaXNfYWRtaW4gICAgICAgIEFTIHJvbF9pc19hZG1pbiwKLS0gICBycC5wYW50YWxsYSwKLS0gICBycC5lZGl0YXIsCi0tICAgcnAuY3JlYXIsCi0tICAgcnAuZWxpbWluYXIKLS0gRlJPTSB1c2VycyB1Ci0tIExFRlQgSk9JTiByb2xlcyByIE9OIHIuaWQgPSB1LnJvbF9pZAotLSBMRUZUIEpPSU4gcm9sX3Blcm1pc29zIHJwIE9OIHJwLnJvbF9pZCA9IHUucm9sX2lkIEFORCBycC5wYW50YWxsYSA9ICdwYXJ0ZXMnCi0tIFdIRVJFIHUuZW1haWwgPSAnbHVjaWFuLmxleW5hQGdtYWlsLmNvbSc7Ci0tCi0tIFJlc3VsdGFkbyBlc3BlcmFkbyBwYXJhIHF1ZSBsYSBmaXJtYSBmdW5jaW9uZTogcm9sX25vbWJyZSA9ICdKZWZlIGRlIG9icmEnCi0tIChvIGVsIHF1ZSBjb3JyZXNwb25kYSksIHJvbF9pc19hZG1pbiA9IGZhbHNlLCB5IGxhIGZpbGEgZGUgcm9sX3Blcm1pc29zCi0tIGNvbiBwYW50YWxsYT0ncGFydGVzJyBkZWJlIGV4aXN0aXIgY29uIGVkaXRhciA9IHRydWUuCi0tIFNpIHJvbF9pZCBlcyBOVUxMLCBvIG5vIGFwYXJlY2UgZmlsYSBkZSByb2xfcGVybWlzb3MgcGFyYSAncGFydGVzJywgZWwKLS0gcHJvYmxlbWEgZXMgZGUgY29uZmlndXJhY2nDs24gZGVsIHVzdWFyaW8vcm9sLCBubyBkZSBlc3RhIHBvbMOtdGljYSDigJQKLS0gYXbDrXNhbWUgY29uIGVsIHJlc3VsdGFkbyB5IGxvIGNvcnJlZ2ltb3MgKHNpbiBjcmVhciB1bmEgZXhjZXBjacOzbiBwYXJhCi0tIGVzdGUgdXN1YXJpbyBjb25jcmV0bzogaGFicsOtYSBxdWUgY29ycmVnaXIgc3Ugcm9sX2lkIG8gZWwgcm9sX3Blcm1pc29zCi0tIGRlbCByb2wgcXVlIGxlIGNvcnJlc3BvbmRhKS4KLS0gPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0K")
+[System.IO.File]::WriteAllBytes((Join-Path $RepoPath "supabase\migrations\045_partes_firma_rls_verificacion.sql"), $bytes)
+Write-Host "  OK: 6 KB" -ForegroundColor Green
+
+$sql = [System.IO.File]::ReadAllText((Join-Path $RepoPath "supabase\migrations\045_partes_firma_rls_verificacion.sql"), [System.Text.Encoding]::UTF8)
+if ($sql.Contains('CREATE OR REPLACE FUNCTION user_has_permiso'))  { Write-Host "  OK: funcion user_has_permiso re-aplicada" -ForegroundColor Green } else { Write-Host "  ERROR" -ForegroundColor Red }
+if ($sql.Contains('WITH CHECK ('))                                 { Write-Host "  OK: WITH CHECK explicito presente" -ForegroundColor Green } else { Write-Host "  ERROR" -ForegroundColor Red }
+if ($sql.Contains('RAISE EXCEPTION'))                               { Write-Host "  OK: verificacion automatica incluida" -ForegroundColor Green } else { Write-Host "  ERROR" -ForegroundColor Red }
+if ($sql.Contains('lucian.leyna@gmail.com'))                        { Write-Host "  OK: consulta de diagnostico incluida (solo lectura, comentada)" -ForegroundColor Green } else { Write-Host "  ERROR" -ForegroundColor Red }
+
+Write-Host ""
+Write-Host "  IMPORTANTE: ejecuta el contenido de" -ForegroundColor Yellow
+Write-Host "  supabase\migrations\045_partes_firma_rls_verificacion.sql en el SQL Editor de Supabase" -ForegroundColor Yellow
+Write-Host "  y revisa el mensaje NOTICE/ERROR que aparece al final." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  git add -A"
+Write-Host '  git commit -m "fix: re-aplicar RLS firma de partes con verificacion y diagnostico"'
+Write-Host "  git push"
+Write-Host ""
+Write-Host "  Despues del deploy: Vercel -> Deployments -> ... -> Promote to Production" -ForegroundColor Yellow
