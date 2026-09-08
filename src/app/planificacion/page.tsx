@@ -18,6 +18,8 @@ import {
 , Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { checkRrhhDisponibilidad, filtrarRrhhDisponibles, formatFechaES } from "@/lib/utils/disponibilidadRrhh";
+import { getRangoFetchAsignaciones } from "@/lib/utils/planificadorRango";
+import { fetchAllPaginated } from "@/lib/utils/fetchAllPaginated";
 import Link from "next/link";
 import CellNote from "@/components/planificacion/CellNote";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -327,11 +329,15 @@ function SortablePersonRow({ persona, dateStrs, days, assignGrid, obras, onRemov
       </div>
       {dateStrs.map((ds, i) => {
         const day = days[i];
-        // No mostrar asignaciones (ni siquiera históricas) en días fuera de la ventana de disponibilidad
-        // actual del recurso. Esto evita que una asignación antigua "fuerce" a mostrar datos si la
-        // fecha_inicio/fecha_fin del RRHH cambió después de haberse creado la asignación.
-        const disponibleEseDia = checkRrhhDisponibilidad(persona, ds).disponible;
-        const personDayAssigs = disponibleEseDia ? (assignGrid[`person-${persona.id}|${ds}`] || []) : [];
+        // El histórico de asignaciones NUNCA debe depender del estado ACTUAL del recurso
+        // (activo / asignable / fecha_inicio / fecha_fin): una asignación pasada es información
+        // histórica de la empresa y debe seguir viéndose aunque hoy el trabajador ya no esté
+        // disponible o activo (regla funcional: desasignar/dar de baja el recurso actual no
+        // equivale a eliminar histórico). Antes se ocultaba con
+        // `checkRrhhDisponibilidad(persona, ds).disponible` — eso es correcto para decidir si HOY
+        // se puede asignar a alguien (drag&drop, modal, panel lateral), pero no para decidir si se
+        // MUESTRA una asignación ya existente. Ver informe 08/09/2026, regla funcional #11.
+        const personDayAssigs = assignGrid[`person-${persona.id}|${ds}`] || [];
         // En Vista Personas, la celda droppable usa id `cell-${persona.id}|${ds}`, por lo que
         // activeOver.obraId contiene en realidad el id de la PERSONA sobre la que se está arrastrando
         // (ver customCollision/onDragOver), nunca un id de obra. Comparar contra persona.id, no contra "obra".
@@ -452,16 +458,32 @@ export default function PlanificacionPage() {
     setLoading(true);
     const [oR, aR, hR, vR, eR] = await Promise.all([
       supabase.from("obras").select("*, cliente:clientes(*), estado_custom:estados_obra(*)").order("orden_gantt"),
-      // Solo cargar asignaciones del rango visible: 4 semanas atras y 8 adelante
-      // Escala sin limites numericos arbitrarios
-      (() => {
-        const rs = new Date(startDate); rs.setDate(rs.getDate() - 28);
-        const re = new Date(startDate); re.setDate(re.getDate() + 56);
-        const fromDs = `${rs.getFullYear()}-${String(rs.getMonth()+1).padStart(2,"0")}-${String(rs.getDate()).padStart(2,"0")}`;
-        const toDs   = `${re.getFullYear()}-${String(re.getMonth()+1).padStart(2,"0")}-${String(re.getDate()).padStart(2,"0")}`;
+      // Cargar asignaciones que solapan el rango REALMENTE visible (startDate..startDate+diasN-1
+      // segun el viewMode actual), con margen de prefetch (4 semanas atras, 8 adelante) para que
+      // la navegacion se sienta fluida. IMPORTANTE: este rango depende de startDate y viewMode, y
+      // por eso ambos estan en las dependencias del useCallback de mas abajo - antes se calculaba
+      // una unica vez al montar el componente y nunca se recalculaba al navegar, lo que dejaba la
+      // ventana de datos congelada a la fecha de apertura de la pagina y ocultaba asignaciones
+      // historicas (julio 2026 y anteriores) al navegar hacia atras. Ver src/lib/utils/planificadorRango.ts.
+      //
+      // PAGINACION (bug #2, detectado 08/09/2026 al verificar el fix anterior en produccion):
+      // Supabase/PostgREST limita cada respuesta a un maximo de filas por defecto (1000 en este
+      // proyecto) SIN AVISAR, aunque el cliente pida .limit(5000) - simplemente trunca. Una ventana
+      // visible amplia (p.ej. vista "Mes"/"Año" con el margen de prefetch) puede superar facilmente
+      // esas 1000 filas sumando TODAS las obras/recursos de la empresa, y como la query no llevaba
+      // .order(), que filas se descartaban era arbitrario: la misma asignacion podia aparecer o no
+      // segun el orden fisico con el que Postgres devolviera las filas. Confirmado en produccion:
+      // rango con 1314 asignaciones reales, la API sin paginar devolvia solo 1000 y se quedaba
+      // fuera justo el trazador (MURPROTEC - ESTELLA (R), 07/07/2026). fetchAllPaginated pagina con
+      // .range() hasta agotar los resultados, para que ese limite del servidor nunca trunque datos
+      // en silencio. Ver src/lib/utils/fetchAllPaginated.ts (con pruebas de regresion propias).
+      fetchAllPaginated<Asignacion>(async (from, to) => {
+        const rango = getRangoFetchAsignaciones(startDate, DAYS_COUNT[viewMode]);
         return supabase.from("asignaciones").select("*")
-          .gte("fecha_fin", fromDs).lte("fecha_inicio", toDs).limit(5000);
-      })(),
+          .gte("fecha_fin", rango.fromDs).lte("fecha_inicio", rango.toDs)
+          .order("fecha_inicio", { ascending: true })
+          .range(from, to);
+      }),
       supabase.from("recursos_humanos").select("*").eq("activo", true).order("orden_planificacion" as any, { ascending: true }).order("nombre"),
       supabase.from("vehiculos").select("*").eq("activo", true).order("nombre"),
       supabase.from("estados_obra").select("*").eq("activo", true).order("nombre"),
@@ -476,7 +498,7 @@ export default function PlanificacionPage() {
       (notasData || []).forEach((n: any) => { notasMap[`${n.obra_id}|${n.fecha}`] = n; });
       setNotas(notasMap);
     } catch { /* table might not exist */ }
-  }, []);
+  }, [startDate, viewMode]);
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const resInfo = useMemo(() => {
